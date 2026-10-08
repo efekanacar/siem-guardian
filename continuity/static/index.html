@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Splunk Log Continuity Checker</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Ana sayfa"><span class="brand-mark" aria-hidden="true">&gt;_</span><span>Log Continuity<span class="brand-sub">SPLUNK CHECKER</span></span></a>
+    <div class="header-right"><span class="local-label"><span class="dot"></span> Yerel çalışma alanı</span></div>
+  </header>
+  <div class="layout">
+    <aside>
+      <div class="sidebar-title"><span class="eyebrow">01 / BAĞLANTI</span><h2>Splunk'a bağlan</h2><p>Loglarını okumak için management API bilgilerini gir.</p></div>
+      <form id="connect-form">
+        <label for="address">Management adresi</label>
+        <input id="address" type="url" required value="https://192.168.3.131:8089" spellcheck="false" placeholder="https://splunk:8089">
+        <p class="field-hint">8089 management API · 8000 web arayüzü</p>
+        <div class="auth-tabs" role="group" aria-label="Giriş yöntemi"><button id="password-auth" type="button" class="selected" aria-pressed="true">Kullanıcı / parola</button><button id="token-auth" type="button" aria-pressed="false">Token</button></div>
+        <div id="password-fields">
+          <label for="username">Kullanıcı adı</label><input id="username" autocomplete="off" placeholder="Splunk kullanıcısı" spellcheck="false">
+          <label for="password">Parola</label><input id="password" type="password" autocomplete="off" placeholder="Parolanı gir">
+        </div>
+        <div id="token-fields" hidden><label for="token">Bearer token</label><input id="token" type="password" autocomplete="off" placeholder="Splunk erişim token'ı"></div>
+        <label class="check-label"><input id="tls" type="checkbox" checked><span>TLS sertifikasını doğrula</span><span class="secure-mark" aria-hidden="true">✓</span></label>
+        <p id="tls-warning" class="field-hint warning" hidden>Lab modu: bağlantı sertifikası doğrulanmayacak.</p>
+        <details><summary>Özel CA sertifikası</summary><label for="ca-bundle">Sunucudaki CA dosya yolu</label><input id="ca-bundle" placeholder="/path/to/ca.pem" spellcheck="false"></details>
+        <button id="connect" class="button primary wide" type="submit"><span>Bağlan</span><span aria-hidden="true">→</span></button>
+      </form>
+      <div id="connection-note" class="connection-note">Giriş bilgileri yalnız bu oturumda tutulur.</div>
+      <div class="sidebar-footer"><span class="mini-icon" aria-hidden="true">◷</span><p>Son geliş zamanı <strong>_indextime</strong> üzerinden ölçülür. Tüm zamanlar UTC'dir.</p></div>
+    </aside>
+    <main>
+      <div class="page-heading"><div><span class="eyebrow">KAYNAK SÜREKLİLİĞİ</span><h1>Log akışına bir göz at.</h1><p>Beklenen kaynakları tanımla, son gelişlerini kontrol et.</p></div><div class="session-actions"><span id="connection-status" class="badge neutral">Bağlantı bekleniyor</span><button id="disconnect" class="text-button" disabled>Bağlantıyı kes</button></div></div>
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+      <section class="summary-grid" aria-label="Durum özeti">
+        <article class="summary-card"><div><span class="status-dot ok"></span><span>Akış normal</span><span class="summary-code">OK</span></div><strong id="count-OK">—</strong><p>Geliş süresi eşik içinde</p></article>
+        <article class="summary-card"><div><span class="status-dot delayed"></span><span>Geciken</span><span class="summary-code">DELAYED</span></div><strong id="count-DELAYED">—</strong><p>Beklenen süreyi aşmış</p></article>
+        <article class="summary-card"><div><span class="status-dot no-data"></span><span>Veri görünmedi</span><span class="summary-code">NO_DATA</span></div><strong id="count-NO_DATA">—</strong><p>Kontrol aralığında veri yok</p></article>
+        <article class="summary-card"><div><span class="status-dot error"></span><span>Kontrol hatası</span><span class="summary-code">ERROR</span></div><strong id="count-ERROR">—</strong><p>Erişim veya arama hatası</p></article>
+      </section>
+      <section class="panel targets-panel">
+        <div class="panel-heading"><div><h2>İzlenecek kaynaklar <span id="target-count" class="counter">0</span></h2><p>Host ve source bilgilerini getir; izlenecek hedefleri düzenle.</p></div><button id="discover" class="button secondary" disabled><span aria-hidden="true">↙</span> Splunk'tan getir</button></div>
+        <div class="target-toolbar"><div class="toolbar-left"><label class="button secondary upload-button" for="csv-file"><span aria-hidden="true">↑</span> CSV yükle</label><input id="csv-file" type="file" accept=".csv,text/csv" hidden><button id="export-targets" class="text-button" disabled>Hedef CSV indir</button></div><button id="add-target" class="button secondary"><span aria-hidden="true">＋</span> Hedef ekle</button></div>
+        <div id="targets-empty" class="empty-targets"><span class="empty-symbol" aria-hidden="true">≡</span><h3>Hedef listen henüz boş.</h3><p>Splunk'tan kaynakları getir, targets.csv dosyanı yükle<br>veya ilk hedefini elle ekle.</p></div>
+        <div id="discovery-warning" class="discovery-warning" role="status" hidden></div>
+        <div id="targets-wrap" class="table-scroll" hidden><table class="target-table"><thead><tr><th>Hedef adı</th><th>Index</th><th>Host</th><th>Sourcetype</th><th>Source</th><th>Eşik / dk</th><th><span class="sr-only">Sil</span></th></tr></thead><tbody id="target-body"></tbody></table></div>
+        <div class="panel-footnote"><span aria-hidden="true">ⓘ</span> Source, keşifte görülen dosya veya kanal bilgisidir. Kontrol index + host + sourcetype ile yapılır; mevcut hedefler korunur.</div>
+      </section>
+      <section class="control-bar"><div><label for="window">Kontrol aralığı</label><div class="window-field"><input id="window" type="number" min="1" max="525600" step="1" value="120"><span>dakika</span></div></div><p>Bütün hedef eşiklerinden<br>daha uzun bir aralık seç.</p><div class="control-action"><span id="progress-label" aria-live="polite">Manuel kontrol · UTC</span><button id="run" class="button primary" disabled><span class="play-icon" aria-hidden="true">▷</span> Kontrolü çalıştır</button></div></section>
+      <section class="panel results-panel">
+        <div class="panel-heading"><div><h2>Kontrol sonuçları</h2><p id="checked-at">İlk kontrolünden sonra sonuçlar burada görünecek.</p></div><button id="export-report" class="button secondary" disabled><span aria-hidden="true">↓</span> Raporu indir</button></div>
+        <details id="check-details" class="check-details" hidden>
+          <summary>Arama ayrıntıları</summary>
+          <p id="check-summary"></p>
+          <p id="check-window"></p>
+          <p id="check-error" class="warning"></p>
+          <p>Çalıştırılan sorgu · Hedef eşleşmesi index + host + sourcetype ile tam yapılır.</p>
+          <pre id="check-query"></pre>
+          <div class="table-scroll"><table class="diagnostic-table"><thead><tr><th>Dönen index</th><th>Host</th><th>Sourcetype</th><th>Ölçüm öncesi son geliş / UTC</th><th>Görülen en yeni geliş / UTC</th><th>Olay sayısı</th></tr></thead><tbody id="diagnostic-body"></tbody></table></div>
+          <p>Ölçüm başladıktan sonra gelen loglar sonraki kontrolde değerlendirilir.</p>
+          <button id="export-diagnostics" class="button secondary" disabled>Arama tanı raporunu indir</button>
+        </details>
+        <div class="result-toolbar" id="result-toolbar" hidden><div class="filter-buttons" role="group" aria-label="Duruma göre filtrele"><button class="selected" data-filter="ALL" aria-pressed="true">Tümü</button><button data-filter="OK" aria-pressed="false">OK</button><button data-filter="DELAYED" aria-pressed="false">DELAYED</button><button data-filter="NO_DATA" aria-pressed="false">NO_DATA</button><button data-filter="ERROR" aria-pressed="false">ERROR</button></div><input id="result-search" type="search" placeholder="Hedef veya host ara…" aria-label="Sonuçlarda ara"></div>
+        <div id="results-empty" class="empty-results"><span class="empty-symbol" aria-hidden="true">◷</span><h3>Kontrol için hazır olduğunda başlat.</h3><p>Hedeflerin son log gelişini, gecikmesini ve durumunu burada göreceksin.</p></div>
+        <div id="results-wrap" class="table-scroll" hidden><table class="result-table"><thead><tr><th>Kaynak / host</th><th>Index / sourcetype</th><th>Son geliş / UTC</th><th>Gecikme</th><th>Eşik</th><th>Durum</th></tr></thead><tbody id="result-body"></tbody></table></div>
+        <div class="panel-footnote"><span aria-hidden="true">ⓘ</span> NO_DATA, kaynağın kesin olarak durduğu anlamına gelmez. Hacim ve kontrol aralığı sonucu etkiler.</div>
+      </section>
+      <footer class="main-footer"><span>Yalnız okuma · Yönetim API'si</span><span>Efekan Acar</span></footer>
+    </main>
+  </div>
+  <template id="target-row"><tr><td><input data-field="name" aria-label="Hedef adı" placeholder="Örn. Windows Security" maxlength="256"></td><td><input data-field="index" aria-label="Index" placeholder="index" maxlength="256" spellcheck="false"></td><td><input data-field="host" aria-label="Host" placeholder="host" maxlength="256" spellcheck="false"></td><td><input data-field="sourcetype" aria-label="Sourcetype" placeholder="sourcetype" maxlength="256" spellcheck="false"></td><td class="source-cell"></td><td><input data-field="max_delay_minutes" aria-label="Gecikme eşiği, dakika" type="number" min="0.001" max="525600" step="any"></td><td><button class="remove-target" aria-label="Hedefi sil" title="Hedefi sil">×</button></td></tr></template>
+</body>
+</html>
