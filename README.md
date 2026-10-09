@@ -1,8 +1,155 @@
-# Splunk Log Continuity Checker
+# SIEM Guardian
 
-Python 3.10+ ile çalışan CLI ve sade yerel web arayüzü. Beklenen kaynakların
-son **indekslenme** zamanını kontrol eder; durum tablosu ve CSV raporu üretir.
-Bağımlılıklar requests, python-dotenv ve standart kütüphanedir.
+Python 3.10+ ile çalışan, Splunk Management API'ye bağlanan sade yerel web arayüzü
+ve CLI. Beklenen kaynakların yalnız log gönderip göndermediğini değil, **olay türü,
+gerekli alan, zaman, hacim ve index yönlendirmesi** kapsamını da kontrol eder.
+Sonuçlar terminalde ve CSV raporunda görülebilir. Bağımlılıklar requests,
+python-dotenv ve standart kütüphanedir.
+
+## Hızlı başlangıç: Ubuntu
+
+```bash
+git clone https://github.com/efekanacar/splunk-log-continuity-checker.git
+cd splunk-log-continuity-checker
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -r requirements.txt
+cp checks.example.json checks.json
+python3 webapp.py
+```
+
+Tarayıcıda `http://127.0.0.1:8787` adresini açın. Splunk management adresini
+(`https://SUNUCU:8089`) ve kullanıcı/parola veya token'ı girin. **Kontrol JSON
+yükle** ile düzenlediğiniz `checks.json` dosyasını seçin; sonra **Sağlık kontrolünü
+çalıştır** seçin. CLI için `.env.example` dosyasını `.env` olarak kopyalayıp
+kimlik bilgilerini yerel dosyada doldurun ve `python3 healthcheck.py --checks
+checks.json --show-spl` çalıştırın. Arayüz, `.env` gerektirmez. `:8000` Splunk Web
+portudur; REST için `:8089` management API kullanılır. Bu ortamdan özel Splunk
+adresine canlı bağlantı doğrulanmadı.
+
+`checks.example.json` tamamen sahte host ve index içerir; canlıda kendi değerlerinizi
+girin. Gerçek `checks.json`, `.env` ve `reports/` Git'e eklenmez.
+
+## Dashboard ve detection bağımlılıkları
+
+Üst kartlarda tanımlı **beklenen kaynak**, **sağlıklı** ve **problemli** kaynak sayısı
+görünür. Veri gelmeden sağlıklı/problemli sayısı `—` kalır; örnek sonuç canlı sonuç
+gibi gösterilmez. Sağlık kontrollerinin altındaki **Detection Dependency Monitoring**
+paneli her tespit kuralının log gereksinimlerini açıklar. `detections` listesinde
+`mode: "any"` alternatif kaynaklardan en az birinin, `mode: "all"` tüm kaynakların
+sağlıklı olmasını ister. Bir alternatif `ERROR` verirse ve diğerleri başarısızsa
+sonuç `UNKNOWN` olur; güvenilir veri olmadan etki kesin ilan edilmez.
+
+Örnekte `T1059.001 – PowerShell`, Sysmon Event ID 1 **veya** PowerShell 4104
+ile desteklenir. İkisi de kaybolursa sonuç `IMPAIRED` ve “PowerShell tespit
+kabiliyeti etkilenmiş olabilir” mesajıdır. Yalnız biri kaybolursa diğeri sağlıklı
+olduğu sürece `COVERED` görünür. Bu, detection kuralının gerçekten tetiklendiğini
+değil, gerekli log kapsamının varlığını ölçer. Sysmon henüz kurulmadıysa gerçek
+konfigürasyonda varmış gibi eklemeyin; kurulum sonrası index/host/source'u
+doğrulayın.
+
+Beklenen envanter **JSON veya CSV** ile yüklenir: `checks.example.json` detection
+bağımlılıklarını da içerir, `checks.example.csv` sade sağlık envanteri örneğidir.
+CSV'de `name,kind,index,host,sourcetype,window_minutes` zorunludur; `source` ve
+kural türüne ait alanlar isteğe bağlı sütunlardır. CSV import detection tanımı
+taşımaz; detection takibi için JSON kullanın. Eski `targets.csv` kaynak sürekliliği
+ekranında da çalışır.
+
+Webhook veya SMTP bildirimi **varsayılan kapalıdır**. CLI'da `.env` içine HTTPS
+`GUARDIAN_WEBHOOK_URL` veya SMTP/posta alanlarını girip yalnız açıkça
+`python3 healthcheck.py --checks checks.json --notify` çalıştırırsanız sorun
+özeti gönderilir. Sağlıklı çalışmada mesaj gönderilmez. Arayüz bildirim göndermez;
+webhook/e-posta kimlik bilgileri rapora veya terminale yazılmaz. Aynı komutu tekrar
+çalıştırmak aynı sorun için yeni bildirim üretir; periyodik kullanımda alıcı tarafta
+tekilleştirme uygulayın.
+
+## Sağlık kontrolleri
+
+| `kind` | Ne ölçer? | Önemli ayarlar |
+| --- | --- | --- |
+| `presence` | Belirli index/host/sourcetype ve isteğe bağlı source için log varlığı | `window_minutes`, `min_events` |
+| `event_id` | Kaynakta belirli olay kimliğinin kaybolması | `event_id_field` (`auto`, `EventCode` veya `EventID`), `event_id`, `min_events` |
+| `field` | Detection kuralının ihtiyaç duyduğu alanın dolu olma oranı | `field`, `min_present_percent`, `min_events` |
+| `timestamp` | Ham Apache zamanını `_time` ile veya `_time` değerini `_indextime` ile karşılaştırır | `timestamp_source`, `max_parse_diff_seconds` veya `max_age_minutes`/`max_future_minutes`, `max_bad_percent`, `min_events` |
+| `volume` | Önceki eşit uzunluktaki aralığa göre log hacmi düşüşü | `drop_percent`, `min_baseline_events` |
+| `route` | Aynı host/sourcetype loglarının beklenen index dışına gitmesi | `min_events` |
+
+Bütün kurallarda `name`, `kind`, `index`, `host`, `sourcetype`, `window_minutes`
+zorunludur; `source` isteğe bağlıdır ve dosya/kanal bazında kesin eşleşme sağlar.
+`index`, `host`, `sourcetype`, `source` için wildcard kabul edilmez. `event_id`
+ve `field` kuralları kendi özel alanlarını da gerektirir. En fazla 50 kural yüklenir.
+Hedef alan adlarını **Splunk'tan getir** ile keşfedip JSON'a aktarabilirsiniz;
+`EventCode`/`EventID` ve detection alanlarını ayrıca kendi SPL sonuçlarınızla
+doğrulayın. `event_id_field: "auto"`, önce `EventCode`/`EventID` arar; Windows XML
+olayında ham `<EventID>` etiketini yedek olarak çıkarır. Örnek dosyadaki eşikler
+üretim ortamı için varsayılan öneri değildir.
+
+Sağlık durumları: `OK` eşik içinde; `ALERT` beklenen davranış bozulmuş;
+`NO_DATA` kontrol aralığında kaynak olayı görünmemiş; `INSUFFICIENT_BASELINE`
+karar için yeterli örnek veya önceki hacim yok; `ERROR` arama/işleme hatası.
+`NO_DATA` tek başına kaynağın durduğunu kanıtlamaz. Her satırda ölçülen değer,
+eşik, açıklama, çalıştırılan SPL ve Splunk search job kimliği gösterilir. CLI
+`--show-spl` ile sorguları yazdırır; rapor CSV'si `reports/` altında üretilir.
+
+Örnek CLI komutları:
+
+```bash
+python3 healthcheck.py --checks checks.json
+python3 healthcheck.py --checks checks.json --output reports/health.csv --show-spl
+python3 -m unittest discover -s tests -v
+```
+
+Hacim karşılaştırması yalnız bir önceki eşit aralığı kullanır; mesai saati ve
+haftalık döngü için eşikleri siz belirlemelisiniz. Apache combined access log için
+`timestamp_source: "apache_combined"`, `[08/Oct/2026:20:15:11 +0300]` biçimindeki
+ham zamanı timezone ile yeniden ayrıştırıp `_time` ile karşılaştırır. Bu örnek
+**17:15:11 UTC**'dir. Ayrıştırılamayan veya toleransı aşan olaylar bozuk sayılır.
+Diğer biçimler için varsayılan `index_gap`, `_time`–`_indextime` farkına bakar;
+tek başına parse hatası ile geç ulaşan gerçek olayı ayıramaz. `route`, hesabın görebildiği indexlerde veri başka
+index'e gidiyorsa gösterir; forwarder prosesinin çalıştığını tek başına doğrulamaz.
+`field`, Splunk arama zamanı alan çıkarımını da sınar. Rol/index yetkisi eksikse
+görünmeyen veriyi sağlıklı veya eksik diye kesin sınıflandıramaz; hesap
+yetkilerini ayrıca doğrulayın.
+
+Sağlık sorguları `_indextime` penceresini `_index_earliest`/`_index_latest` ile
+daraltır, ardından `where` ile `[başlangıç, bitiş)` sınırını kesin uygular.
+Event-time filtresi `earliest=0 latest=253402300799` olduğu için eski veya
+geleceğe yanlış parse edilmiş olay zamanları dışlanmaz. Arama bitmeden sonuç
+alınmaz; kısmi/uyarılı aramalar ve eksik sonuçlar `ERROR` olur. Bütün sorgular
+yalnız okuma amaçlıdır; büyük indexlerde arama maliyetini ve timeout'u izleyin.
+[Splunk zaman değiştiricileri](https://help.splunk.com/en/splunk-enterprise/spl-search-reference/9.0/time-format-variables-and-modifiers/time-modifiers)
+event-time ile index-time aralıklarının birlikte uygulandığını açıklar.
+[Splunk `rex` alan çıkarımı](https://help.splunk.com/en/splunk-enterprise/search/search-manual/9.2/evaluate-and-manipulate-fields/extract-fields-with-search-commands)
+ve [Splunk `%z` zaman biçimi](https://help.splunk.com/splunk-cloud-platform/search/spl2-search-manual/dates-and-time/using-time-variables)
+Apache ve Windows XML yedek çıkarımının dayanağıdır.
+
+Paylaşılan envanter CSV'sinde yalnız listelenen kaynaklar için yerel `checks.json`
+hazırlanabilir; `index`, `host`, `sourcetype`, `source` sütunlarını **aynı satırdan**
+alın. Ayrı satırlardaki host ve source değerlerini birleştirmeyin. 24 saatte Apache
+veya Sysmon görünmüyorsa bunlar için index/host tahmin etmeyin; önce Splunk'ta
+doğrulayın. Windows örnek XML'inde `<EventID>4688</EventID>` olması, başka bir
+hostta aynı olayın üretildiğini kanıtlamaz. Düşük hacimli `auth.log` için 60 dakika
+gibi kısa pencere olağan şekilde `NO_DATA` verebilir; aralığı olay sıklığına göre
+seçin.
+
+Alanları doğrulamak için Splunk Search'te kendi değerlerinizi yerleştirerek:
+
+```spl
+index="WINDOWS_INDEX" host="WINDOWS_HOST" sourcetype="XmlWinEventLog:Security" earliest=0 _index_earliest=-24h
+| rex field=_raw "<EventID>(?<xml_event_id>[0-9]+)</EventID>"
+| eval effective_id=coalesce(EventCode,EventID,xml_event_id)
+| stats count BY effective_id
+```
+
+Apache için gerçek index/host/source saptandıktan sonra ham zaman ile `_time`
+kontrolünü `checks.json` içindeki `timestamp_source: "apache_combined"` kuralıyla
+çalıştırın; ilk çalıştırmada üretilen SPL'yi arayüzden veya `--show-spl` ile açın.
+
+## Log sürekliliği ekranı
+
+Önceki `targets.csv` süreklilik kontrolü de korunur: son gelişini `_indextime`
+üzerinden ölçer ve OK/DELAYED/NO_DATA/ERROR üretir. Aşağıdaki lab görüntüsü bu
+ekranın önceki görünümüdür; yeni sağlık paneli bunun yanına eklenmiştir.
 
 ![Splunk Log Continuity Checker arayüzü](docs/arayuz.png)
 
