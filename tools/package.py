@@ -6,18 +6,18 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 root = Path(__file__).resolve().parent.parent
 files = [
-    "checker.py", "webapp.py", "README.md", "requirements.txt", ".env.example",
-    ".gitignore", "targets.example.csv", "docs/ARAYUZ_KULLANIM.md", "docs/arayuz.png", "tools/package.py",
-    "tests/test_checker.py", "tests/test_web.py", "tests/test_splunk_flow.py",
+    "checker.py", "healthcheck.py", "webapp.py", "README.md", "requirements.txt", ".env.example",
+    ".gitignore", "targets.example.csv", "checks.example.csv", "checks.example.json", "docs/ARAYUZ_KULLANIM.md", "docs/arayuz.png", "tools/package.py",
+    "tests/test_checker.py", "tests/test_web.py", "tests/test_splunk_flow.py", "tests/test_health.py", "tests/test_guardian.py",
     "continuity/__init__.py", "continuity/cli.py", "continuity/core.py",
-    "continuity/config.py", "continuity/splunk.py", "continuity/web.py",
+    "continuity/config.py", "continuity/splunk.py", "continuity/health.py", "continuity/dependencies.py", "continuity/notify.py", "continuity/web.py",
     "continuity/static/index.html", "continuity/static/style.css", "continuity/static/app.js",
 ]
-output = root / "output" / "Splunk_Log_Continuity_Checker.zip"
+output = root / "output" / "SIEM_Guardian.zip"
 output.parent.mkdir(exist_ok=True)
 with ZipFile(output, "w", ZIP_DEFLATED, compresslevel=9) as archive:
     for name in files:
-        archive.write(root / name, "splunk-log-continuity-checker/" + name)
+        archive.write(root / name, "siem-guardian/" + name)
 with ZipFile(output) as archive:
     assert archive.testzip() is None
     assert len(archive.namelist()) == len(files)
