@@ -219,6 +219,8 @@ class WebTests(unittest.TestCase):
         self.assertNotIn('id="demo"', response.text)
         self.assertNotIn("v2.0", response.text)
         self.assertIn("Efekan Acar", response.text)
+        self.assertIn("SIEM Guardian", response.text)
+        self.assertIn("Sağlık ve kapsama kontrolleri", response.text)
         for path in ["/.env", "/continuity/config.py", "/../.env"]:
             self.assertEqual(self.browser.get(self.url + path, timeout=3).status_code, 404)
 
@@ -232,6 +234,53 @@ class WebTests(unittest.TestCase):
             for path in ["/api/check", "/api/discover"]:
                 self.assertEqual(self.post(path, {"targets": [asdict(TEST_TARGETS[0])], "window": 120}).status_code, 400)
             client.assert_not_called()
+
+    def test_health_import_check_and_csv_export(self):
+        rule = {"name": "Sysmon 1", "kind": "event_id", "index": "example_windows",
+                "host": "win.example.invalid", "sourcetype": "XmlWinEventLog:Sysmon",
+                "window_minutes": 60, "event_id_field": "EventCode", "event_id": "1"}
+        detection = {"name": "PowerShell tespiti", "technique": "T1059.001", "mode": "any",
+                     "checks": ["Sysmon 1"], "impact": "PowerShell tespit kabiliyeti etkilenmiş olabilir."}
+        self.assertEqual(self.post("/api/health/import", {"json": json.dumps({"checks": [rule], "detections": [detection]})}).status_code, 200)
+        self.assertEqual(self.state["health_checks"][0]["name"], "Sysmon 1")
+        self.assertEqual(self.state["detection_results"][0]["status"], "PENDING")
+        self.assertEqual(self.post("/api/health/check", {}).status_code, 400)
+        self.connect()
+        now = datetime(2026, 10, 10, 12, 0, tzinfo=timezone.utc)
+        with patch("continuity.web.SplunkClient.get_server_time", return_value=now), patch(
+            "continuity.web.SplunkClient.run_search", return_value={"results": [{"total_count": "20", "matching_count": "0"}]}
+        ):
+            self.assertEqual(self.post("/api/health/check", {}).status_code, 202)
+            done = self.wait_done()
+        self.assertEqual(done["job"]["status"], "DONE")
+        self.assertEqual(done["job"]["completed"], 1)
+        self.assertEqual(done["health_results"][0]["status"], "ALERT")
+        self.assertEqual(done["detection_results"][0]["status"], "IMPAIRED")
+        self.assertIn("PowerShell tespit", done["detection_results"][0]["impact"])
+        self.assertIn("EventCode", done["health_results"][0]["search"])
+        exported = self.browser.get(self.url + "/api/health-report.csv", timeout=3)
+        self.assertEqual(exported.status_code, 200)
+        rows = list(csv.DictReader(io.StringIO(exported.content.decode("utf-8-sig"))))
+        self.assertEqual(rows[0]["status"], "ALERT")
+        self.assertEqual(self.browser.get(self.url + "/api/health-example.json", timeout=3).status_code, 200)
+        saved = self.browser.get(self.url + "/api/health-checks.json", timeout=3).json()
+        self.assertEqual(saved["checks"][0]["event_id"], "1")
+        self.assertEqual(saved["detections"][0]["name"], "PowerShell tespiti")
+        self.assertIn("IMPAIRED", self.browser.get(self.url + "/api/detection-report.csv", timeout=3).text)
+        self.assertNotIn("private-token", json.dumps(done))
+
+    def test_health_csv_inventory_import(self):
+        from pathlib import Path
+        content = Path("checks.example.csv").read_text(encoding="utf-8")
+        self.assertEqual(self.post("/api/health/import", {"csv": content}).status_code, 200)
+        self.assertEqual(len(self.state["health_checks"]), 2)
+        self.assertEqual(self.state["detections"], [])
+
+    def test_health_rule_validation_rejects_spl_injection(self):
+        rule = {"name": "Unsafe", "kind": "field", "index": "example_linux", "host": "host.invalid",
+                "sourcetype": "linux_secure", "window_minutes": 60, "field": "src | delete"}
+        self.assertEqual(self.post("/api/health/import", {"json": json.dumps({"checks": [rule]})}).status_code, 400)
+        self.assertEqual(self.state["health_checks"], [])
 
 
 class WebLogicTests(unittest.TestCase):
