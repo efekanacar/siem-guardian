@@ -1,8 +1,20 @@
 # Arayüz kullanım rehberi
 
+Bu rehberde eski kaynak sürekliliği akışı da bulunur. Yeni **SIEM Guardian**
+paneli için önce `checks.example.json` dosyasını
+`checks.json` adıyla kopyalayıp gerçek index/host/sourcetype ve eşikleri yazın.
+Arayüzde Splunk'a bağlanın, **Kontrol JSON / CSV yükle** ile dosyayı seçin ve
+**Sağlık kontrolünü çalıştır** düğmesine basın. Sonuçlarda her kuralın durumu,
+ölçülen değer, eşik, açıklama ve açılabilir SPL görünür. **CSV raporu indir** ile
+sonuçları alın. Detection Dependency Monitoring bölümünde etkilenen tespitleri
+görüp detection CSV raporunu indirebilirsiniz. Örnek JSON'u arayüzden de
+indirebilirsiniz. Gerçek `checks.json`
+yerel kalır. Kural türleri ve alanları için [README](../README.md#sağlık-kontrolleri)
+bölümüne bakın.
+
 ## Ubuntu kurulumu
 
-ZIP'i çıkarın ve `splunk-log-continuity-checker` klasöründe terminal açın.
+ZIP'i çıkarın ve `siem-guardian` klasöründe terminal açın.
 Python 3.10+ gerekir. İlk kurulumda:
 
 ```bash
