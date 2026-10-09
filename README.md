@@ -19,16 +19,18 @@ python3 webapp.py
 ```
 
 Tarayıcıda `http://127.0.0.1:8787` adresini açın. Splunk management adresini
-(`https://SUNUCU:8089`) ve kullanıcı/parola veya token'ı girin. **Kontrol JSON
+(`https://SUNUCU:8089`) ve kullanıcı/parola veya token'ı girin. **Kontrol JSON / CSV
 yükle** ile düzenlediğiniz `checks.json` dosyasını seçin; sonra **Sağlık kontrolünü
 çalıştır** seçin. CLI için `.env.example` dosyasını `.env` olarak kopyalayıp
 kimlik bilgilerini yerel dosyada doldurun ve `python3 healthcheck.py --checks
 checks.json --show-spl` çalıştırın. Arayüz, `.env` gerektirmez. `:8000` Splunk Web
-portudur; REST için `:8089` management API kullanılır. Bu ortamdan özel Splunk
-adresine canlı bağlantı doğrulanmadı.
+portudur; REST için `:8089` management API kullanılır. Management API üzerinden
+uygulama bağlantısı bu ortamda doğrulanmadı.
 
 `checks.example.json` tamamen sahte host ve index içerir; canlıda kendi değerlerinizi
-girin. Gerçek `checks.json`, `.env` ve `reports/` Git'e eklenmez.
+girin. Gerçek `checks.json`, `.env` ve `reports/` Git'e eklenmez. Bu ortamda
+uygulamanın `:8089` REST bağlantısı/oturum açması doğrulanmadı; Splunk Web Search
+ekranında sağlık SPL'si ayrıca denendi.
 
 ## Dashboard ve detection bağımlılıkları
 
@@ -113,8 +115,10 @@ yetkilerini ayrıca doğrulayın.
 
 Sağlık sorguları `_indextime` penceresini `_index_earliest`/`_index_latest` ile
 daraltır, ardından `where` ile `[başlangıç, bitiş)` sınırını kesin uygular.
-Event-time filtresi `earliest=0 latest=253402300799` olduğu için eski veya
-geleceğe yanlış parse edilmiş olay zamanları dışlanmaz. Arama bitmeden sonuç
+Event-time filtresi `earliest=0 latest=+10y` olduğu için eski ve gelecek 10 yıla
+yanlış parse edilmiş olay zamanları dışlanmaz. Daha uzak gelecekteki olaylar
+bu sürümde görünmez. Splunk 10.4.1, `latest=253402300799` değerini geçersiz
+saydı; `+10y` ifadesi canlı Search ekranında doğrulandı. Arama bitmeden sonuç
 alınmaz; kısmi/uyarılı aramalar ve eksik sonuçlar `ERROR` olur. Bütün sorgular
 yalnız okuma amaçlıdır; büyük indexlerde arama maliyetini ve timeout'u izleyin.
 [Splunk zaman değiştiricileri](https://help.splunk.com/en/splunk-enterprise/spl-search-reference/9.0/time-format-variables-and-modifiers/time-modifiers)
@@ -122,6 +126,13 @@ event-time ile index-time aralıklarının birlikte uygulandığını açıklar.
 [Splunk `rex` alan çıkarımı](https://help.splunk.com/en/splunk-enterprise/search/search-manual/9.2/evaluate-and-manipulate-fields/extract-fields-with-search-commands)
 ve [Splunk `%z` zaman biçimi](https://help.splunk.com/splunk-cloud-platform/search/spl2-search-manual/dates-and-time/using-time-variables)
 Apache ve Windows XML yedek çıkarımının dayanağıdır.
+
+Canlı Splunk Web Search denemesinde bir Linux `auth.log` sağlık sorgusu tamamlandı;
+`total_count=15` ve `last_seen_epoch=1791582131` döndü. Aynı Search ekranında
+paylaşılan Apache zaman örneği `1791479711` epoch değerine ayrıştırıldı ve Windows
+XML `<EventID>4688</EventID>` örneği `matching_count=1` verdi. Bunlar SPL
+sözdizimini doğrular; uygulamanın Management API bağlantısını, rol yetkilerini ve
+tüm hedeflerin uçtan uca sonuçlarını kanıtlamaz.
 
 Paylaşılan envanter CSV'sinde yalnız listelenen kaynaklar için yerel `checks.json`
 hazırlanabilir; `index`, `host`, `sourcetype`, `source` sütunlarını **aynı satırdan**
@@ -418,11 +429,12 @@ python -m unittest discover -s tests -v
   job/HTTP akışı, toplu eşleşme, eksik API sonucu, arayüz ve oturum testleri.
 - `requirements.txt`, `.env.example`, `targets.example.csv`, `.gitignore`: kurulum ve paylaşım dosyaları.
 
-**Canlı Splunk bağlantısı bu projede doğrulanmadı.** Testler sahte API yanıtları
+**Uygulamanın canlı Management API bağlantısı doğrulanmadı.** Testler sahte API yanıtları
 ve test verileriyle çalışır. REST transport testleri gerçek requests istemcisini
 kullanır, ancak Splunk motorunu çalıştırmaz; SPL'nin ortamınızdaki çalışmasını
 kanıtlamaz. Canlı doğrulamada arama ayrıntılarını Splunk Search sonuçlarıyla
-karşılaştırın. Bu ortamdan özel management adresine bağlantı kurulamadı.
+karşılaştırın. Splunk Web Search üzerinde yukarıdaki üç SPL parçası doğrulandı;
+bu, uygulama oturumunun çalıştığı anlamına gelmez.
 
 İsteğe bağlı Linux cron örneği (yalnız örnek; otomatik kurulum yapılmaz):
 
