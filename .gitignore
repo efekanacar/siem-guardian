@@ -7,10 +7,12 @@ __pycache__/
 .env.*
 !.env.example
 targets.csv
+checks.json
 reports/
 search-diagnostics*.json
 *.csv
 !targets.example.csv
+!checks.example.csv
 *.log
 *.pem
 *.key
