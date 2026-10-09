@@ -20,6 +20,8 @@ from .core import (
     evaluate, positive_number, read_targets,
 )
 from .splunk import SplunkClient
+from .health import Rule, Result, csv_bytes as health_csv_bytes, read_config, read_csv_rules, rule_dict, run_checks
+from .dependencies import Detection, csv_bytes as detection_csv_bytes, detection_dict, evaluate_detections
 
 
 ASSETS = Path(__file__).resolve().parent / "static"
@@ -111,6 +113,10 @@ class Session:
     reports: list[Report] = field(default_factory=list)
     checked_at: str | None = None
     diagnostics: dict = field(default_factory=dict)
+    health_rules: list[Rule] = field(default_factory=list)
+    detections: list[Detection] = field(default_factory=list)
+    health_results: list[Result] = field(default_factory=list)
+    health_checked_at: str | None = None
     window: int = 120
     job: Job | None = None
     touched: float = field(default_factory=time.monotonic)
@@ -128,6 +134,11 @@ class Session:
                 "reports": [dict(r.row(), error=r.error, note=r.note) for r in self.reports],
                 "checked_at": self.checked_at,
                 "diagnostics": self.diagnostics,
+                "health_checks": [rule_dict(rule) for rule in self.health_rules],
+                "detections": [detection_dict(value) for value in self.detections],
+                "detection_results": evaluate_detections(self.detections, self.health_results),
+                "health_results": [dict(result.row(), search=result.search, job=result.job) for result in self.health_results],
+                "health_checked_at": self.health_checked_at,
                 "job": {"kind": self.job.kind, "status": self.job.status,
                         "completed": self.job.completed, "total": self.job.total,
                         "error": self.job.error} if self.job else None,
@@ -184,6 +195,7 @@ def run_job(session: Session, job: Job, config: Config, targets: list[Target], w
                     session.discovery_sources, session.discovery_warnings = [], []
                     session.reports, session.checked_at = [], None
                     session.diagnostics = {}
+                    session.health_results, session.health_checked_at = [], None
         elif job.kind == "discover":
             discovered = client.discover_targets()
             merged = merge_targets(targets, discovered)
@@ -196,6 +208,19 @@ def run_job(session: Session, job: Job, config: Config, targets: list[Target], w
                     session.discovery_warnings = client.discovery_warnings
                     session.reports, session.checked_at = [], None
                     session.diagnostics = {}
+        elif job.kind == "health":
+            now = client.get_server_time()
+            with session.lock:
+                rules = list(session.health_rules)
+                session.health_results, session.health_checked_at = [], None
+            def progress(position):
+                with session.lock:
+                    job.completed = position
+            results = run_checks(client, rules, now, progress, job.cancel.is_set)
+            with session.lock:
+                if not job.cancel.is_set():
+                    session.health_results = results
+                    session.health_checked_at = now.isoformat().replace("+00:00", "Z")
         else:
             now = client.get_server_time()
             start = now - timedelta(minutes=window)
@@ -297,6 +322,21 @@ class Handler(BaseHTTPRequestHandler):
                 if not session.diagnostics or (session.job and session.job.status == "RUNNING"):
                     return self.send(409, {"error": "Önce kontrolün tamamlanmasını bekleyin."}, sid=sid)
                 return self.send(200, session.diagnostics, "application/json; charset=utf-8", sid, "search-diagnostics.json")
+            if path == "/api/health-report.csv":
+                if not session.health_results or (session.job and session.job.status == "RUNNING"):
+                    return self.send(409, {"error": "Önce sağlık kontrolünü tamamlayın."}, sid=sid)
+                return self.send(200, health_csv_bytes(session.health_results), "text/csv; charset=utf-8", sid, "siem-health-report.csv")
+            if path == "/api/detection-report.csv":
+                if not session.health_results or (session.job and session.job.status == "RUNNING"):
+                    return self.send(409, {"error": "Önce sağlık kontrolünü tamamlayın."}, sid=sid)
+                return self.send(200, detection_csv_bytes(evaluate_detections(session.detections, session.health_results)),
+                                 "text/csv; charset=utf-8", sid, "siem-detections.csv")
+            if path == "/api/health-checks.json":
+                return self.send(200, {"checks": [rule_dict(rule) for rule in session.health_rules],
+                                       "detections": [detection_dict(value) for value in session.detections]}, sid=sid, filename="checks.json")
+            if path == "/api/health-example.json":
+                example = Path(__file__).resolve().parent.parent / "checks.example.json"
+                return self.send(200, example.read_bytes(), "application/json; charset=utf-8", sid, "checks.example.json")
         self.send(404, {"error": "Sayfa bulunamadı."})
 
     def do_POST(self):
@@ -321,12 +361,32 @@ class Handler(BaseHTTPRequestHandler):
                     session.discovery_sources, session.discovery_warnings = [], []
                     session.reports, session.checked_at = [], None
                     session.diagnostics = {}
+                    session.health_results, session.health_checked_at = [], None
                     return self.send(200, session.snapshot(), sid=sid)
                 if session.job and session.job.status == "RUNNING":
                     return self.send(409, {"error": "Devam eden işlemin tamamlanmasını bekleyin."}, sid=sid)
                 if path == "/api/connect":
                     config = Config.from_values(data)
                     return self.start(session, sid, "connect", config, [], session.window)
+                elif path == "/api/health/import":
+                    content = data.get("json", data.get("csv"))
+                    if not isinstance(content, str) or len(content) > 262144:
+                        raise ValueError("En fazla 256 KB JSON/CSV metni gerekli.")
+                    if "json" in data and "csv" not in data:
+                        rules, detections = read_config(content)
+                    elif "csv" in data and "json" not in data:
+                        rules, detections = read_csv_rules(content), []
+                    else:
+                        raise ValueError("Yalnız bir JSON veya CSV içeriği gerekli.")
+                    session.health_rules, session.detections = rules, detections
+                    session.health_results, session.health_checked_at = [], None
+                    return self.send(200, session.snapshot(), sid=sid)
+                elif path == "/api/health/check":
+                    if session.config is None:
+                        raise ValueError("Önce Splunk'a bağlanın.")
+                    if not session.health_rules:
+                        raise ValueError("Önce sağlık kontrollerini JSON ile yükleyin.")
+                    return self.start(session, sid, "health", session.config, [], session.window)
                 elif path in {"/api/targets", "/api/import", "/api/check", "/api/discover"}:
                     window = window_value(data.get("window", 120))
                     if path == "/api/import":
@@ -358,14 +418,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send(500, {"error": "İşlem tamamlanamadı."}, sid=sid)
 
     def start(self, session, sid, kind, config, targets, window):
-        job = Job(kind, total=len(targets) if kind == "check" else 0)
+        job = Job(kind, total=len(session.health_rules) if kind == "health" else len(targets) if kind == "check" else 0)
         session.job = job
         threading.Thread(target=run_job, args=(session, job, config, list(targets), window), daemon=True).start()
         return self.send(202, session.snapshot(), sid=sid)
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Splunk Log Continuity Checker yerel arayüz")
+    parser = argparse.ArgumentParser(description="SIEM Health & Log Coverage Monitor yerel arayüz")
     parser.add_argument("--port", type=int, default=8787, help="Yerel arayüz portu (varsayılan: 8787)")
     args = parser.parse_args(argv)
     if not 1 <= args.port <= 65535:
