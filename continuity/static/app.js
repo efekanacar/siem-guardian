@@ -32,13 +32,15 @@ function buttonStates() {
   $("export-targets").disabled = busy || !targets.length;
   $("export-report").disabled = busy || !reports.length || dirty;
   $("export-diagnostics").disabled = busy || !state?.diagnostics?.search || dirty;
+  $("health-run").disabled = busy || !connected || !state?.health_checks?.length;
+  $("health-file").disabled = busy;
   $("window").disabled = busy;
   document.querySelectorAll("#target-body input, #target-body button").forEach((el) => el.disabled = busy);
   document.querySelectorAll("#connect-form input, #connect-form .auth-tabs button").forEach((el) => el.disabled = busy);
   const kind = state?.job?.kind;
   $("connect").firstElementChild.textContent = busy && kind === "connect" ? "Bağlanıyor…" : "Bağlan";
   $("run").lastChild.textContent = busy && kind === "check" ? " Kontrol ediliyor…" : " Kontrolü çalıştır";
-  $("progress-label").textContent = busy ? (kind === "check" ? `${state.job.completed} / ${state.job.total} hedef kontrol edildi` : kind === "connect" ? "Bağlantı doğrulanıyor…" : "Kaynaklar aranıyor…") : "Manuel kontrol · UTC";
+  $("progress-label").textContent = busy ? (kind === "check" ? `${state.job.completed} / ${state.job.total} hedef kontrol edildi` : kind === "health" ? `${state.job.completed} / ${state.job.total} sağlık kontrolü tamamlandı` : kind === "connect" ? "Bağlantı doğrulanıyor…" : "Kaynaklar aranıyor…") : "Manuel kontrol · UTC";
 }
 function renderConnection() {
   const badge = $("connection-status");
@@ -128,7 +130,69 @@ function applyState(next, updateTargets = true) {
   state = next; busy = next.job?.status === "RUNNING";
   if (updateTargets) { targets = next.targets.map((t) => ({...t})); $("window").value = next.window; dirty = false; renderTargets(); }
   reports = next.reports;
-  renderConnection(); renderReports(); renderDiagnostics(); buttonStates();
+  renderConnection(); renderReports(); renderDiagnostics(); renderHealth(); buttonStates();
+}
+function renderHealth() {
+  const rules = state?.health_checks || [], results = state?.health_results || [];
+  const resources = new Map();
+  const statusByName = new Map(results.map((result) => [result.name, result.status]));
+  for (const rule of rules) {
+    const key = JSON.stringify([rule.index, rule.host, rule.sourcetype, rule.source || ""]);
+    if (!resources.has(key)) resources.set(key, []);
+    resources.get(key).push(statusByName.get(rule.name));
+  }
+  $("guardian-expected").textContent = resources.size;
+  $("guardian-healthy").textContent = results.length ? [...resources.values()].filter((items) => items.every((status) => status === "OK")).length : "—";
+  $("guardian-problem").textContent = results.length ? [...resources.values()].filter((items) => items.some((status) => status && status !== "OK")).length : "—";
+  $("health-count").textContent = rules.length;
+  $("health-empty").hidden = !!rules.length;
+  $("health-rules-wrap").hidden = !rules.length;
+  $("health-export-rules").hidden = !rules.length;
+  $("health-rules-body").replaceChildren();
+  for (const rule of rules) {
+    const row = document.createElement("tr");
+    [rule.name, rule.kind, `${rule.index} / ${rule.host} / ${rule.sourcetype}${rule.source ? " / " + rule.source : ""}`, `${rule.window_minutes} dk`].forEach((value) => textCell(row, String(value), "td"));
+    $("health-rules-body").append(row);
+  }
+  $("health-results-section").hidden = !results.length;
+  $("health-checked-at").textContent = state?.health_checked_at ? `Ölçüm: ${state.health_checked_at}` : "";
+  $("health-summary").replaceChildren();
+  for (const status of ["OK", "ALERT", "NO_DATA", "INSUFFICIENT_BASELINE", "ERROR"]) {
+    const count = results.filter((result) => result.status === status).length;
+    if (results.length) textCell($("health-summary"), `${status}: ${count}`, "span", "badge " + ({OK:"ok",ALERT:"error",NO_DATA:"no-data",INSUFFICIENT_BASELINE:"delayed",ERROR:"error"}[status]));
+  }
+  $("health-results-body").replaceChildren();
+  for (const result of results) {
+    const row = document.createElement("tr");
+    const cells = Array.from({length: 6}, () => row.appendChild(document.createElement("td")));
+    textCell(cells[0], result.name, "strong"); textCell(cells[0], result.host, "small");
+    textCell(cells[1], result.check_type);
+    textCell(cells[2], result.status, "span", "badge " + ({OK:"ok",ALERT:"error",NO_DATA:"no-data",INSUFFICIENT_BASELINE:"delayed",ERROR:"error"}[result.status] || "neutral"));
+    textCell(cells[3], result.observed || "—"); textCell(cells[4], result.threshold || "—");
+    textCell(cells[5], result.details);
+    if (result.search) {
+      const details = document.createElement("details"); textCell(details, "SPL ve iş bilgisi", "summary");
+      textCell(details, result.search, "pre");
+      if (result.job?.sid) textCell(details, `Search job: ${result.job.sid}`, "small");
+      cells[5].append(details);
+    }
+    $("health-results-body").append(row);
+  }
+  const detections = state?.detections || [], detectionResults = state?.detection_results || [];
+  $("detection-count").textContent = detections.length;
+  $("detection-empty").hidden = !!detections.length;
+  $("detection-wrap").hidden = !detections.length;
+  $("detection-export").hidden = !results.length || !detections.length;
+  $("detection-body").replaceChildren();
+  for (const detection of detectionResults) {
+    const row = document.createElement("tr");
+    const cells = Array.from({length: 4}, () => row.appendChild(document.createElement("td")));
+    textCell(cells[0], detection.name, "strong"); textCell(cells[0], detection.technique, "small");
+    textCell(cells[1], detection.status, "span", "badge " + ({COVERED:"ok",IMPAIRED:"error",UNKNOWN:"delayed",PENDING:"neutral"}[detection.status] || "neutral"));
+    textCell(cells[2], `${detection.mode === "any" ? "Alternatif" : "Tümü gerekli"}: ` + Object.entries(detection.evidence).map(([name,status]) => `${name} (${status})`).join(" · "));
+    textCell(cells[3], detection.impact || (detection.status === "PENDING" ? "Kontrol bekleniyor." : detection.status === "UNKNOWN" ? "Sonuç belirsiz; hatalı veya yetersiz kontrolleri inceleyin." : "Kapsam doğrulandı."));
+    $("detection-body").append(row);
+  }
 }
 function renderDiagnostics() {
   const diagnostic = state?.diagnostics;
@@ -153,23 +217,26 @@ async function poll() {
     while (busy) {
       await new Promise((resolve) => setTimeout(resolve, 600));
       const next = await api("/api/state");
-      applyState(next, next.job?.status !== "RUNNING");
+      applyState(next, next.job?.status !== "RUNNING" && next.job?.kind !== "health");
     }
     if (state.job?.status === "ERROR") {notice(state.job.error, "error"); if (state.job.kind === "check" && state.diagnostics?.search) $("check-details").open = true;}
     else if (state.job?.status === "DONE") {
       const kind = state.job.kind;
-      const message = kind === "connect" ? "Splunk bağlantısı doğrulandı. Hedeflerini getirebilir veya CSV yükleyebilirsin." : kind === "discover" ? targets.length ? `${targets.length} hedef hazır. Host ve source bilgilerini incele, eşikleri düzenle ve kontrolü başlat.` : "Görünür indexlerde kaynak bulunamadı. Hesabın index yetkilerini kontrol et veya CSV yükle." : "Kontrol tamamlandı. Sonuçları inceleyebilir ve raporu indirebilirsin.";
+      const message = kind === "connect" ? "Splunk bağlantısı doğrulandı. Hedeflerini getirebilir veya CSV yükleyebilirsin." : kind === "discover" ? targets.length ? `${targets.length} hedef hazır. Host ve source bilgilerini incele, eşikleri düzenle ve kontrolü başlat.` : "Görünür indexlerde kaynak bulunamadı. Hesabın index yetkilerini kontrol et veya CSV yükle." : kind === "health" ? "Sağlık kontrolleri tamamlandı. Sonuçları ve SPL ayrıntılarını incele." : "Kontrol tamamlandı. Sonuçları inceleyebilir ve raporu indirebilirsin.";
       const allNoData = kind === "check" && reports.length && reports.every((r) => r.status === "NO_DATA");
-      notice(allNoData ? "Bütün hedefler NO_DATA. Arama ayrıntılarında dönen kaynakları, hedef eşleşmelerini ve son geliş tarihlerini incele." : message, allNoData || (kind === "discover" && (state.discovery_warnings?.length || !targets.length)) ? "info" : "success");
+      const healthErrors = kind === "health" && state.health_results?.some((r) => r.status === "ERROR");
+      const healthAlerts = kind === "health" && state.health_results?.some((r) => r.status !== "OK");
+      notice(allNoData ? "Bütün hedefler NO_DATA. Arama ayrıntılarında dönen kaynakları, hedef eşleşmelerini ve son geliş tarihlerini incele." : healthErrors ? "Bazı sağlık kontrolleri hata verdi. İlgili satırları ve SPL ayrıntılarını incele." : message,
+        healthErrors ? "error" : allNoData || healthAlerts || (kind === "discover" && (state.discovery_warnings?.length || !targets.length)) ? "info" : "success");
       if (allNoData || (kind === "check" && reports.some((r) => r.status === "ERROR"))) $("check-details").open = true;
       if (kind === "connect") {$("password").value = ""; $("token").value = "";}
     }
   } catch (error) {busy = false; buttonStates(); notice("Arayüz bağlantısı kesildi. Sunucuyu kontrol edip sayfayı yenile.", "error");}
   finally {polling = false;}
 }
-async function action(path, data) {
+async function action(path, data, preserveTargets = false) {
   busy = true; buttonStates(); notice("");
-  try {applyState(await api(path, data)); if (busy) await poll();}
+  try {applyState(await api(path, data), !preserveTargets); if (busy) await poll();}
   catch (error) {busy = false; buttonStates(); notice(error.message, "error");}
 }
 function payload() {return {window: $("window").value, targets};}
@@ -202,6 +269,12 @@ $("csv-file").addEventListener("change", async (event) => {
   try {if (file.size > 900000) throw new Error("CSV dosyası en fazla 900 KB olabilir."); await action("/api/import", {csv: await file.text(), window: $("window").value});}
   catch (error) {notice(error.message, "error");} finally {event.target.value = "";}
 });
+$("health-file").addEventListener("change", async (event) => {
+  const file = event.target.files[0]; if (!file) return;
+  try {if (file.size > 250000) throw new Error("Kontrol dosyası en fazla 250 KB olabilir."); const format = file.name.toLowerCase().endsWith(".csv") ? "csv" : "json"; await action("/api/health/import", {[format]: await file.text()}, true); notice("Sağlık kontrolleri yüklendi. Kaynak adlarını ve eşikleri inceleyin.", "success");}
+  catch (error) {notice(error.message, "error");} finally {event.target.value = "";}
+});
+$("health-run").addEventListener("click", () => action("/api/health/check", {}, true));
 async function download(path, filename) {
   const response = await fetch(path, {credentials:"same-origin", cache:"no-store"});
   if (!response.ok) {const result = await response.json(); throw new Error(result.error);}
