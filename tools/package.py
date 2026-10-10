@@ -7,7 +7,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 root = Path(__file__).resolve().parent.parent
 files = [
     "checker.py", "healthcheck.py", "webapp.py", "README.md", "requirements.txt", ".env.example",
-    ".gitignore", "targets.example.csv", "checks.example.csv", "checks.example.json", "docs/ARAYUZ_KULLANIM.md", "docs/arayuz.png", "tools/package.py",
+    ".gitignore", "targets.example.csv", "checks.example.csv", "checks.example.json", "docs/ARAYUZ_KULLANIM.md", "docs/arayuz.png", "docs/siem-guardian.png", "tools/package.py",
     "tests/test_checker.py", "tests/test_web.py", "tests/test_splunk_flow.py", "tests/test_health.py", "tests/test_guardian.py",
     "continuity/__init__.py", "continuity/cli.py", "continuity/core.py",
     "continuity/config.py", "continuity/splunk.py", "continuity/health.py", "continuity/dependencies.py", "continuity/notify.py", "continuity/web.py",
