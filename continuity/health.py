@@ -5,7 +5,7 @@ import io
 import json
 import math
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
@@ -16,12 +16,13 @@ from .dependencies import Detection, parse_detections
 
 
 KINDS = ("presence", "event_id", "field", "timestamp", "volume", "route")
-STATUSES = ("OK", "ALERT", "NO_DATA", "INSUFFICIENT_BASELINE", "ERROR")
+STATUSES = ("OK", "ALERT", "NO_DATA", "QUIET", "INSUFFICIENT_BASELINE", "ERROR")
 RESULT_FIELDS = (
     "name", "check_type", "index", "host", "sourcetype", "source", "status",
     "observed", "threshold", "details", "checked_at_utc",
 )
-COMMON = {"name", "kind", "index", "host", "sourcetype", "source", "window_minutes"}
+COMMON = {"name", "kind", "index", "host", "sourcetype", "source", "window_minutes", "availability", "activity_check"}
+OPTIONAL_COMMON = {"source", "availability", "activity_check"}
 EXTRA = {
     "presence": {"min_events"},
     "event_id": {"event_id_field", "event_id", "min_events"},
@@ -67,6 +68,8 @@ class Rule:
     sourcetype: str
     window_minutes: int
     source: str = ""
+    availability: str = "continuous"
+    activity_check: str = ""
     min_events: int = 1
     event_id_field: str = ""
     event_id: str = ""
@@ -88,6 +91,12 @@ class Rule:
             validate_text(getattr(self, label), label)
         if self.source:
             validate_text(self.source, "source")
+        if self.availability not in {"continuous", "intermittent"}:
+            raise ValueError("availability: continuous veya intermittent gerekli.")
+        if self.activity_check:
+            validate_text(self.activity_check, "activity_check")
+            if self.availability != "intermittent":
+                raise ValueError("activity_check yalnız intermittent kaynakta kullanılabilir.")
         integer(self.window_minutes, "window_minutes", 1, 10080)
         integer(self.min_events, "min_events", 1, 1000000000)
         integer(self.min_baseline_events, "min_baseline_events", 1, 1000000000)
@@ -115,7 +124,7 @@ def parse_rules(value) -> list[Rule]:
     rules, names = [], set()
     for position, item in enumerate(rows, 1):
         try:
-            if not isinstance(item, dict) or not COMMON.difference({"source"}) <= set(item):
+            if not isinstance(item, dict) or not COMMON.difference(OPTIONAL_COMMON) <= set(item):
                 raise ValueError("Zorunlu alanlar eksik.")
             kind = item["kind"]
             if kind not in KINDS:
@@ -142,6 +151,12 @@ def parse_rules(value) -> list[Rule]:
             rules.append(rule)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"Kontrol {position}: {exc}") from None
+    by_name = {rule.name: rule for rule in rules}
+    for rule in rules:
+        if rule.activity_check:
+            reference = by_name.get(rule.activity_check)
+            if reference is None or reference.name == rule.name or reference.host != rule.host:
+                raise ValueError(f"{rule.name}: activity_check aynı hostta başka bir kontrole işaret etmeli.")
     return rules
 
 
@@ -173,7 +188,7 @@ def read_csv_rules(text: str) -> list[Rule]:
         if not reader.fieldnames or len(reader.fieldnames) != len(set(reader.fieldnames)):
             raise ValueError("CSV başlıkları geçersiz veya yinelenmiş.")
         allowed = COMMON | set().union(*EXTRA.values())
-        if set(reader.fieldnames) - allowed or not COMMON.difference({"source"}) <= set(reader.fieldnames):
+        if set(reader.fieldnames) - allowed or not COMMON.difference(OPTIONAL_COMMON) <= set(reader.fieldnames):
             raise ValueError("CSV kontrol sütunları eksik veya geçersiz.")
         rows = []
         for row in reader:
@@ -197,7 +212,7 @@ def load_config(path: Path) -> tuple[list[Rule], list[Detection]]:
 def rule_dict(rule: Rule) -> dict:
     """Yeniden içe aktarılabilir, türüne özgü JSON satırı."""
     values = asdict(rule)
-    return {key: value for key, value in values.items() if key in COMMON | EXTRA[rule.kind] and (key != "source" or value)}
+    return {key: value for key, value in values.items() if key in COMMON | EXTRA[rule.kind] and (key not in {"source", "activity_check"} or value)}
 
 
 def build_search(rule: Rule, now: datetime) -> str:
@@ -207,11 +222,12 @@ def build_search(rule: Rule, now: datetime) -> str:
     index_start = start - rule.window_minutes * 60 if rule.kind == "volume" else start
     if not 0 < index_start < end < MAX_EPOCH:
         raise CheckError("Sağlık kontrolünün zaman sınırları geçersiz.")
-    # Event-time All Time, geleceğe yanlış parse edilen olayları da içerir.
+    # Event-time geçmişten 10 yıl ileriye: Splunk 12 haneli epoch latest değerini
+    # reddeder; +10y bu ortamda canlı Search ile doğrulandı.
     # _index_* aramayı daraltır; where kesin [başlangıç, bitiş) sınırını uygular.
     index = "*" if rule.kind == "route" else spl_string(rule.index, "index")
     search = (
-        f"search index={index} earliest=0 latest={MAX_EPOCH} "
+        f"search index={index} earliest=0 latest=+10y "
         f"_index_earliest={index_start} _index_latest={end} "
         f"| where host={spl_string(rule.host, 'host')} "
         f"AND sourcetype={spl_string(rule.sourcetype, 'sourcetype')}"
@@ -314,10 +330,12 @@ def evaluate(rule: Rule, row: dict, now: datetime, search: str = "", job: dict |
         raise CheckError("Splunk sağlık kontrolü sonucu geçersiz.")
     total = count(row, "total_count")
     status, observed, threshold, details = "OK", str(total), "", ""
+    quiet = rule.availability == "intermittent"
+    no_events = "Aralıklı kaynakta bu aralıkta olay yok; sistem kapalı olabilir, akış doğrulanamadı."
     if rule.kind == "presence":
         threshold = f"en az {rule.min_events} olay"
         if total == 0:
-            status, details = "NO_DATA", "Beklenen kaynakta kontrol aralığında olay görünmedi."
+            status, details = ("QUIET", no_events) if quiet else ("NO_DATA", "Beklenen kaynakta kontrol aralığında olay görünmedi.")
         elif total < rule.min_events:
             status, details = "ALERT", "Olay sayısı beklenen asgari düzeyin altında."
         else:
@@ -337,7 +355,7 @@ def evaluate(rule: Rule, row: dict, now: datetime, search: str = "", job: dict |
         if value > total:
             raise CheckError("Splunk sağlık kontrolü sayaçları tutarsız.")
         if total == 0:
-            status, details = "NO_DATA", "Kaynakta bu aralıkta olay yok; kapsam değerlendirilemedi."
+            status, details = ("QUIET", no_events) if quiet else ("NO_DATA", "Kaynakta bu aralıkta olay yok; kapsam değerlendirilemedi.")
         elif rule.kind == "event_id":
             observed, threshold = str(value), f"en az {rule.min_events} Event ID {rule.event_id}"
             status = "OK" if value >= rule.min_events else "ALERT"
@@ -363,9 +381,10 @@ def evaluate(rule: Rule, row: dict, now: datetime, search: str = "", job: dict |
             raise CheckError("Splunk hacim sayaçları tutarsız.")
         observed = f"şimdi {current} / önceki {baseline}"
         threshold = f"en fazla %{rule.drop_percent:g} düşüş"
-        if total == 0:
-            status = "NO_DATA"
-            details = "Karşılaştırılan iki aralıkta da olay görünmedi."
+        if quiet and current == 0:
+            status, details = "QUIET", no_events
+        elif total == 0:
+            status, details = "NO_DATA", "Karşılaştırılan iki aralıkta da olay görünmedi."
         elif baseline < rule.min_baseline_events:
             status = "INSUFFICIENT_BASELINE"
             details = f"Önceki aralıkta {baseline} olay var; en az {rule.min_baseline_events} gerekli."
@@ -386,7 +405,7 @@ def evaluate(rule: Rule, row: dict, now: datetime, search: str = "", job: dict |
             raise CheckError("Splunk yönlendirme sonucu tutarsız.")
         observed, threshold = f"beklenen {expected} / toplam {total}", f"en az {rule.min_events}; başka index 0"
         if total == 0:
-            status, details = "NO_DATA", "Bu host/sourcetype için erişilebilir indexlerde olay görünmedi."
+            status, details = ("QUIET", no_events) if quiet else ("NO_DATA", "Bu host/sourcetype için erişilebilir indexlerde olay görünmedi.")
         elif expected < rule.min_events or expected < total:
             status = "ALERT"
             details = "Beklenen index dışında veri görüldü: " + ", ".join(sorted(set(indexes))) + "." if expected < total else "Beklenen indexte olay sayısı yetersiz."
@@ -417,6 +436,14 @@ def run_checks(client: SplunkClient, rules: list[Rule], now: datetime, progress:
         results.append(result)
         if progress:
             progress(position)
+    by_name = {result.rule.name: result for result in results}
+    for position, result in enumerate(results):
+        reference = by_name.get(result.rule.activity_check)
+        if result.status == "QUIET" and reference and reference.status == "OK":
+            results[position] = replace(
+                result, status="ALERT",
+                details=f"Bu kaynak sessizken aynı hostun '{reference.rule.name}' kontrolü OK; beklenen akış eksik olabilir.",
+            )
     return results
 
 
