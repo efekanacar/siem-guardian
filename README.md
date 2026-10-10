@@ -34,13 +34,14 @@ ekranında sağlık SPL'si ayrıca denendi.
 
 ## Dashboard ve detection bağımlılıkları
 
-Üst kartlarda tanımlı **beklenen kaynak**, **sağlıklı** ve **problemli** kaynak sayısı
+Üst kartlarda tanımlı **beklenen kaynak**, **sağlıklı**, **problemli** ve **belirsiz** kaynak sayısı
 görünür. Veri gelmeden sağlıklı/problemli sayısı `—` kalır; örnek sonuç canlı sonuç
 gibi gösterilmez. Sağlık kontrollerinin altındaki **Detection Dependency Monitoring**
 paneli her tespit kuralının log gereksinimlerini açıklar. `detections` listesinde
 `mode: "any"` alternatif kaynaklardan en az birinin, `mode: "all"` tüm kaynakların
 sağlıklı olmasını ister. Bir alternatif `ERROR` verirse ve diğerleri başarısızsa
-sonuç `UNKNOWN` olur; güvenilir veri olmadan etki kesin ilan edilmez.
+sonuç `UNKNOWN` olur; güvenilir veri olmadan etki kesin ilan edilmez. Aralıklı
+bir kaynakta `QUIET` da detection sonucunu `UNKNOWN` yapar.
 
 Örnekte `T1059.001 – PowerShell`, Sysmon Event ID 1 **veya** PowerShell 4104
 ile desteklenir. İkisi de kaybolursa sonuç `IMPAIRED` ve “PowerShell tespit
@@ -52,7 +53,8 @@ doğrulayın.
 
 Beklenen envanter **JSON veya CSV** ile yüklenir: `checks.example.json` detection
 bağımlılıklarını da içerir, `checks.example.csv` sade sağlık envanteri örneğidir.
-CSV'de `name,kind,index,host,sourcetype,window_minutes` zorunludur; `source` ve
+CSV'de `name,kind,index,host,sourcetype,window_minutes` zorunludur; `source`,
+`availability`, `activity_check` ve
 kural türüne ait alanlar isteğe bağlı sütunlardır. CSV import detection tanımı
 taşımaz; detection takibi için JSON kullanın. Eski `targets.csv` kaynak sürekliliği
 ekranında da çalışır.
@@ -60,7 +62,9 @@ ekranında da çalışır.
 Webhook veya SMTP bildirimi **varsayılan kapalıdır**. CLI'da `.env` içine HTTPS
 `GUARDIAN_WEBHOOK_URL` veya SMTP/posta alanlarını girip yalnız açıkça
 `python3 healthcheck.py --checks checks.json --notify` çalıştırırsanız sorun
-özeti gönderilir. Sağlıklı çalışmada mesaj gönderilmez. Arayüz bildirim göndermez;
+özeti gönderilir. Yalnız `ALERT`, sürekli kaynakta `NO_DATA` ve `IMPAIRED`
+bildirilir; `QUIET`, `UNKNOWN`, yetersiz örnek ve arama hatası dışarıya yanlış
+arıza uyarısı olarak gönderilmez. Arayüz bildirim göndermez;
 webhook/e-posta kimlik bilgileri rapora veya terminale yazılmaz. Aynı komutu tekrar
 çalıştırmak aynı sorun için yeni bildirim üretir; periyodik kullanımda alıcı tarafta
 tekilleştirme uygulayın.
@@ -78,6 +82,13 @@ tekilleştirme uygulayın.
 
 Bütün kurallarda `name`, `kind`, `index`, `host`, `sourcetype`, `window_minutes`
 zorunludur; `source` isteğe bağlıdır ve dosya/kanal bazında kesin eşleşme sağlar.
+`availability: "continuous"` varsayılandır. Makine düzenli açık kalmıyorsa
+`"intermittent"` seçin: pencerede veri yoksa `QUIET` çıkar. Bu durum sağlıklı
+akışın kanıtı da, durmuş kaynağın kanıtı da değildir. İsteğe bağlı
+`activity_check`, **aynı hostta** tanımlı başka bir kontrolün adıdır; örneğin
+Windows Security akışı `OK` iken Sysmon sessizse sonuç `ALERT` olur. Referans da
+sessiz veya hatalıysa Sysmon `QUIET` kalır. İki kontrol için aynı pencereyi
+kullanmak anlamlı karşılaştırma sağlar.
 `index`, `host`, `sourcetype`, `source` için wildcard kabul edilmez. `event_id`
 ve `field` kuralları kendi özel alanlarını da gerektirir. En fazla 50 kural yüklenir.
 Hedef alan adlarını **Splunk'tan getir** ile keşfedip JSON'a aktarabilirsiniz;
@@ -87,9 +98,12 @@ olayında ham `<EventID>` etiketini yedek olarak çıkarır. Örnek dosyadaki e�
 üretim ortamı için varsayılan öneri değildir.
 
 Sağlık durumları: `OK` eşik içinde; `ALERT` beklenen davranış bozulmuş;
-`NO_DATA` kontrol aralığında kaynak olayı görünmemiş; `INSUFFICIENT_BASELINE`
+`NO_DATA` sürekli beklenen kaynakta kontrol aralığında olay görünmemiş;
+`QUIET` aralıklı kaynakta olay görünmemiş; `INSUFFICIENT_BASELINE`
 karar için yeterli örnek veya önceki hacim yok; `ERROR` arama/işleme hatası.
-`NO_DATA` tek başına kaynağın durduğunu kanıtlamaz. Her satırda ölçülen değer,
+`NO_DATA` tek başına kaynağın durduğunu kanıtlamaz. Splunk VM kapalıyken API
+erişimi başarısız olur ve sonuç `ERROR` olur; boş arama sonucu gibi gösterilmez.
+Her satırda ölçülen değer,
 eşik, açıklama, çalıştırılan SPL ve Splunk search job kimliği gösterilir. CLI
 `--show-spl` ile sorguları yazdırır; rapor CSV'si `reports/` altında üretilir.
 
@@ -100,6 +114,11 @@ python3 healthcheck.py --checks checks.json
 python3 healthcheck.py --checks checks.json --output reports/health.csv --show-spl
 python3 -m unittest discover -s tests -v
 ```
+
+CLI çıkış kodu `0`: eylem gerektiren sorun yok (`QUIET` ve yetersiz örnek
+raporda görünmeye devam eder); `1`: `ALERT`, sürekli kaynakta `NO_DATA` veya
+etkilenen detection; `2`: arama/erişim/işleme hatası. `--notify` yalnız eylem
+gerektiren sonuçları gönderir.
 
 Hacim karşılaştırması yalnız bir önceki eşit aralığı kullanır; mesai saati ve
 haftalık döngü için eşikleri siz belirlemelisiniz. Apache combined access log için
@@ -140,8 +159,11 @@ alın. Ayrı satırlardaki host ve source değerlerini birleştirmeyin. 24 saatt
 veya Sysmon görünmüyorsa bunlar için index/host tahmin etmeyin; önce Splunk'ta
 doğrulayın. Windows örnek XML'inde `<EventID>4688</EventID>` olması, başka bir
 hostta aynı olayın üretildiğini kanıtlamaz. Düşük hacimli `auth.log` için 60 dakika
-gibi kısa pencere olağan şekilde `NO_DATA` verebilir; aralığı olay sıklığına göre
-seçin.
+gibi kısa pencere olağan şekilde `QUIET` verebilir; aralığı olay sıklığına göre
+seçin. 24 saat içinde host kapalı olabilir. Araç hostun güç/çalışma durumunu
+bağımsız kaynaktan doğrulamaz; sadece Splunk'a gelen veriyi değerlendirir.
+Bir önceki pencereyle hacim kıyaslamasında aralıklı kaynak şu an sıfır olay
+üretiyorsa hacim düşüşü de `QUIET` sayılır.
 
 Alanları doğrulamak için Splunk Search'te kendi değerlerinizi yerleştirerek:
 
