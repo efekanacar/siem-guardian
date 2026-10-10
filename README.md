@@ -101,7 +101,8 @@ Sağlık durumları: `OK` eşik içinde; `ALERT` beklenen davranış bozulmuş;
 `NO_DATA` sürekli beklenen kaynakta kontrol aralığında olay görünmemiş;
 `QUIET` aralıklı kaynakta olay görünmemiş; `INSUFFICIENT_BASELINE`
 karar için yeterli örnek veya önceki hacim yok; `ERROR` arama/işleme hatası.
-`NO_DATA` tek başına kaynağın durduğunu kanıtlamaz. Splunk VM kapalıyken API
+`NO_DATA` tek başına kaynağın durduğunu kanıtlamaz. Bu kontrol yalnız seçilen
+penceredeki gelişleri arar; önceki günün son gelişini göstermez. Splunk VM kapalıyken API
 erişimi başarısız olur ve sonuç `ERROR` olur; boş arama sonucu gibi gösterilmez.
 Her satırda ölçülen değer,
 eşik, açıklama, çalıştırılan SPL ve Splunk search job kimliği gösterilir. CLI
@@ -391,38 +392,42 @@ tam eşleştirilir; bulunmayan hedefler de raporda kalır. Örnek SPL
 (üst sınır örnek UTC epoch değeridir):
 
 ```spl
-search (index="example_apps" OR index="example_os") earliest=0
+search (index="example_apps" OR index="example_os") earliest=0 latest=+10y
+    _index_earliest=1791014400 _index_latest=1791021600
 | eval arrival_epoch=_indextime
-| eval before_check=if(arrival_epoch < 1791021600.000000, arrival_epoch, null())
+| where arrival_epoch>=1791014400 AND arrival_epoch<1791021600
 | stats count AS matched_count count(arrival_epoch) AS index_time_count
-    count(before_check) AS before_check_count max(before_check) AS last_seen_epoch
+    count(arrival_epoch) AS before_check_count max(arrival_epoch) AS last_seen_epoch
     max(arrival_epoch) AS latest_any_epoch BY index host sourcetype
 ```
 
 Event-time sınırları index-time sınırlarından bağımsızdır. Dar bir `earliest=-2h`
-ile `_time`'ı eski olan yeni indekslenmiş loglar kaçırılır. REST job aramaları
-varsayılan olarak **All time** kullanır; uygulama `earliest=0` ekler, yapay bir
-`latest` üst sınırı ve `_index_earliest`/`_index_latest` eklemez. Epoch öncesindeki
-olay zamanları kapsam dışıdır; rol/index erişimi ve retention yine geçerlidir.
-Sorguyu Splunk Web'de elle denerseniz zaman seçiciyi **All time** yapın.
+ile `_time`'ı eski olan yeni indekslenmiş loglar kaçırılır. Bu yüzden event-time
+aralığı `earliest=0 latest=+10y` tutulur; asıl kontrol penceresi
+`_index_earliest`/`_index_latest` ve kesin `[başlangıç, bitiş)` `where` koşuluyla
+`_indextime` üzerinden uygulanır. Epoch öncesindeki veya 10 yıldan daha ileriye
+yanlış parse edilmiş olay zamanları kapsam dışıdır. Splunk Web'de elle denerken
+zaman seçiciyi **All time** yapın.
 
-SPL yalnız `arrival_epoch < T` gelişlerinin maksimumunu `last_seen_epoch` olarak
-hesaplar; kontrol başladıktan sonraki loglar önceki gelişin üstünü örtmez. Python
-bu maksimumu `T-pencere` ile karşılaştırır. Maksimum alt sınırdan küçükse bu
-pencerede geliş yoktur: NO_DATA kalır, görünür son geliş ve kaç dakika önce olduğu
-açıklanır. Hiç üçlü eşleşmiyorsa hedef alanlarını/index yetkisini kontrol etmenizi
-ister. `_time` karar için kullanılmaz.
+SPL yalnız penceredeki gelişlerin maksimumunu `last_seen_epoch` olarak hesaplar.
+Önceki günün son gelişini aramak için tüm geçmişteki bucket'lar taranmaz; bu
+bir hedefin pencerede hiç görünmemesi halinde `NO_DATA` ve boş son geliş zamanı
+anlamına gelir. Hiç üçlü eşleşmiyorsa hedef alanlarını ve index yetkisini kontrol
+edin. `_time` karar için kullanılmaz.
 
-`latest_any_epoch`, sorgu sırasında görünen en son indekslenme zamanıdır; yalnız
-tanı bilgisi içindir. Ölçüm anından sonraki loglar karar aralığına dahil edilmez.
-Bütün gelişler ölçümden sonra ve son geliş 5 dakikadan fazla ilerideyse saat
-tutarsızlığı ERROR olarak gösterilir. Search head/indexer saatlerini doğrulayın.
+`latest_any_epoch`, kontrol penceresinde görülen en son indekslenme zamanıdır;
+yalnız tanı bilgisi içindir. Ölçüm anından sonraki loglar karar aralığına dahil edilmez.
 Eksik indekslenme alanı, tutarsız sayaçlar veya API satır sayısı ile job'ın
 `resultCount` değeri arasındaki fark ERROR'dur. Bir satırdaki zaman hatası diğer
 geçerli hedeflerin değerlendirilmesini engellemez.
 
-All time ham olay taraması büyük indexlerde maliyetli olabilir; toplu arama
-timeout'una ulaşırsa sonuç kabul edilmez. Bu araç küçük hedef listeleri içindir.
+Eski sorgu `earliest=0` ile tüm geçmişi tarıyordu. Kullanıcının Splunk Search
+işinde `windows-1` ve `main` indexlerindeki iki eski bucket için “Failed to read
+... rawdata; results may be incomplete” hatası görüldü. Splunk tabloda satır
+gösterse de bu eksik sonuç güvenilir değildi. Yeni sorgu seçilen geliş penceresine
+daraltıldı ve aynı Splunk ortamında 9 kaynak satırını hata vermeden döndürdü.
+Bozuk bir bucket kontrol penceresinin içindeyse sonuç yine `ERROR` olur; bucket
+onarımı için Splunk yöneticisi ilgili search.log dosyasını incelemelidir.
 CSV'nin 8 alanı korunur; NO_DATA açıklamaları arayüzde ve CLI metninde gösterilir.
 
 Arayüzde **Arama ayrıntıları**, çalıştırılan SPL'yi, Splunk ölçüm saatini,
