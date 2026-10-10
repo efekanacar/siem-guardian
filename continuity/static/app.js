@@ -201,7 +201,10 @@ function renderDiagnostics() {
   $("check-details").hidden = dirty || !diagnostic?.search;
   $("diagnostic-body").replaceChildren();
   if (!diagnostic?.search) return;
-  $("check-summary").textContent = `API'den ${diagnostic.returned_rows} kaynak satırı alındı · ${diagnostic.expected_targets} beklenen hedefin ${diagnostic.matched_targets} tanesi eşleşti` + (diagnostic.job?.sid ? ` · Arama kimliği: ${diagnostic.job.sid}` : "");
+  $("check-summary").textContent = (diagnostic.returned_rows == null
+    ? `Arama güvenilir tamamlanmadı; kaynak satırları alınamadı · ${diagnostic.expected_targets} beklenen hedef değerlendirilemedi`
+    : `API'den ${diagnostic.returned_rows} kaynak satırı alındı · ${diagnostic.expected_targets} beklenen hedefin ${diagnostic.matched_targets} tanesi eşleşti`)
+    + (diagnostic.job?.sid ? ` · Arama kimliği: ${diagnostic.job.sid}` : "");
   $("check-window").textContent = `Splunk ölçüm zamanı: ${diagnostic.measurement_utc} · Pencere: ${diagnostic.window_start_utc} ≤ geliş < ${diagnostic.window_end_utc}`;
   $("check-error").textContent = diagnostic.error || "";
   $("check-error").hidden = !diagnostic.error;
