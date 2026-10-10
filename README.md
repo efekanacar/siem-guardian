@@ -24,13 +24,12 @@ yükle** ile düzenlediğiniz `checks.json` dosyasını seçin; sonra **Sağlık
 çalıştır** seçin. CLI için `.env.example` dosyasını `.env` olarak kopyalayıp
 kimlik bilgilerini yerel dosyada doldurun ve `python3 healthcheck.py --checks
 checks.json --show-spl` çalıştırın. Arayüz, `.env` gerektirmez. `:8000` Splunk Web
-portudur; REST için `:8089` management API kullanılır. Management API üzerinden
-uygulama bağlantısı bu ortamda doğrulanmadı.
+portudur; REST için `:8089` management API kullanılır.
 
 `checks.example.json` tamamen sahte host ve index içerir; canlıda kendi değerlerinizi
-girin. Gerçek `checks.json`, `.env` ve `reports/` Git'e eklenmez. Bu ortamda
-uygulamanın `:8089` REST bağlantısı/oturum açması doğrulanmadı; Splunk Web Search
-ekranında sağlık SPL'si ayrıca denendi.
+girin. Gerçek `checks.json`, `.env` ve `reports/` Git'e eklenmez. Kullanıcının
+paylaştığı uygulama çıktısında Management API'den 9 kaynak satırı alınmıştı;
+yeni kodun aynı bağlantıyla uçtan uca çalışması yeniden kontrol edilmelidir.
 
 ## Dashboard ve detection bağımlılıkları
 
@@ -396,9 +395,8 @@ search (index="example_apps" OR index="example_os") earliest=0 latest=+10y
     _index_earliest=1791014400 _index_latest=1791021600
 | eval arrival_epoch=_indextime
 | where arrival_epoch>=1791014400 AND arrival_epoch<1791021600
-| stats count AS matched_count count(arrival_epoch) AS index_time_count
-    count(arrival_epoch) AS before_check_count max(arrival_epoch) AS last_seen_epoch
-    max(arrival_epoch) AS latest_any_epoch BY index host sourcetype
+| stats count AS matched_count max(arrival_epoch) AS last_seen_epoch
+    BY index host sourcetype
 ```
 
 Event-time sınırları index-time sınırlarından bağımsızdır. Dar bir `earliest=-2h`
@@ -413,13 +411,19 @@ SPL yalnız penceredeki gelişlerin maksimumunu `last_seen_epoch` olarak hesapla
 Önceki günün son gelişini aramak için tüm geçmişteki bucket'lar taranmaz; bu
 bir hedefin pencerede hiç görünmemesi halinde `NO_DATA` ve boş son geliş zamanı
 anlamına gelir. Hiç üçlü eşleşmiyorsa hedef alanlarını ve index yetkisini kontrol
-edin. `_time` karar için kullanılmaz.
+edin. Aynı host/sourcetype başka bir hedef indexte görünüyorsa NO_DATA açıklaması
+o indexi belirtir. Aynı hosttan başka loglar geliyorsa eksik sourcetype ayrı
+belirtilir. `_time` karar için kullanılmaz.
 
-`latest_any_epoch`, kontrol penceresinde görülen en son indekslenme zamanıdır;
-yalnız tanı bilgisi içindir. Ölçüm anından sonraki loglar karar aralığına dahil edilmez.
-Eksik indekslenme alanı, tutarsız sayaçlar veya API satır sayısı ile job'ın
+Ölçüm anından sonraki loglar karar aralığına dahil edilmez.
+Eksik indekslenme alanı, geçersiz sayaçlar veya API satır sayısı ile job'ın
 `resultCount` değeri arasındaki fark ERROR'dur. Bir satırdaki zaman hatası diğer
 geçerli hedeflerin değerlendirilmesini engellemez.
+
+Önceki SPL aynı `count(arrival_epoch)` ve `max(arrival_epoch)` istatistiğini iki
+farklı takma adla tekrarlıyordu. Splunk bu ortamda ilk takma adları boş döndürdü;
+aktif 9 kaynak yanlışlıkla ERROR görünüyordu. Tekil `count` ve `max` alanlarına
+indirilen sorgu aynı Splunk Search ekranında 9 dolu sonuç satırı verdi.
 
 Eski sorgu `earliest=0` ile tüm geçmişi tarıyordu. Kullanıcının Splunk Search
 işinde `windows-1` ve `main` indexlerindeki iki eski bucket için “Failed to read
@@ -456,12 +460,13 @@ python -m unittest discover -s tests -v
   job/HTTP akışı, toplu eşleşme, eksik API sonucu, arayüz ve oturum testleri.
 - `requirements.txt`, `.env.example`, `targets.example.csv`, `.gitignore`: kurulum ve paylaşım dosyaları.
 
-**Uygulamanın canlı Management API bağlantısı doğrulanmadı.** Testler sahte API yanıtları
-ve test verileriyle çalışır. REST transport testleri gerçek requests istemcisini
-kullanır, ancak Splunk motorunu çalıştırmaz; SPL'nin ortamınızdaki çalışmasını
-kanıtlamaz. Canlı doğrulamada arama ayrıntılarını Splunk Search sonuçlarıyla
-karşılaştırın. Splunk Web Search üzerinde yukarıdaki üç SPL parçası doğrulandı;
-bu, uygulama oturumunun çalıştığı anlamına gelmez.
+Kullanıcının paylaştığı uygulama çıktısı Management API bağlantısının çalıştığını
+ve 9 kaynak satırı döndüğünü gösterir. Eski SPL aynı `stats` işlevini farklı
+takma adlarla tekrarladığı için bu satırlardaki bazı alanlar boştu. Düzeltilen
+SPL'nin alanları Splunk Web Search ekranında dolu doğrulandı. Yeni uygulama
+koduyla Management API üzerinden kontrolün tekrar çalıştırılması gerekir.
+Otomatik testler sahte API yanıtları ve test verileriyle çalışır; transport
+testleri gerçek requests istemcisini kullanır, ancak Splunk motorunu çalıştırmaz.
 
 İsteğe bağlı Linux cron örneği (yalnız örnek; otomatik kurulum yapılmaz):
 
@@ -470,5 +475,5 @@ bu, uygulama oturumunun çalıştığı anlamına gelmez.
 ```
 
 Önceden `reports/` oluşturun. Büyük hedef listelerinde önceki çalışma bitmeden
-yeni çalışma başlatmayacak aralık seçin. GitHub'a paylaşmadan önce yalnız örnek
-dosyaları ve kaynak kodu ekleyin; bu proje commit/push yapmaz.
+yeni çalışma başlatmayacak aralık seçin. GitHub'a yalnız örnek dosyaları ve kaynak
+kodu ekleyin; gerçek hedefleri, kimlik bilgilerini ve raporları yerel tutun.
