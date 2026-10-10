@@ -1,7 +1,7 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
 let state = null, targets = [], reports = [], filter = "ALL", auth = "password", busy = false;
-let polling = false, dirty = false;
+let polling = false, dirty = false, editingRule = null, editingDetection = null;
 const fields = ["name", "index", "host", "sourcetype", "max_delay_minutes"];
 
 function notice(message, kind = "info") {
@@ -16,8 +16,12 @@ async function api(path, data) {
     options.headers = {"Content-Type": "application/json", "X-CSRF-Token": state?.csrf || ""};
     options.body = JSON.stringify(data);
   }
-  const response = await fetch(path, options);
-  const result = await response.json();
+  let response;
+  try { response = await fetch(path, options); }
+  catch { throw new Error("Yerel arayüz sunucusuna ulaşılamadı. Ubuntu terminalinde webapp.py çalışıyor mu? Sayfayı yenileyin; bağlantı ve kurallar yeniden yüklenebilir."); }
+  let result;
+  try { result = await response.json(); }
+  catch { throw new Error("Yerel sunucudan eksik yanıt geldi. Terminali kontrol edip sayfayı yenileyin."); }
   if (!response.ok) throw new Error(result.error || "İşlem tamamlanamadı.");
   return result;
 }
@@ -34,6 +38,7 @@ function buttonStates() {
   $("export-diagnostics").disabled = busy || !state?.diagnostics?.search || dirty;
   $("health-run").disabled = busy || !connected || !state?.health_checks?.length;
   $("health-file").disabled = busy;
+  ["rules-from-targets", "rule-new", "detection-new"].forEach((id) => $(id).disabled = busy);
   $("window").disabled = busy;
   document.querySelectorAll("#target-body input, #target-body button").forEach((el) => el.disabled = busy);
   document.querySelectorAll("#connect-form input, #connect-form .auth-tabs button").forEach((el) => el.disabled = busy);
@@ -54,6 +59,11 @@ function markDirty() {
   renderReports();
   renderDiagnostics();
   buttonStates();
+  rememberLocal();
+}
+function rememberLocal() {
+  try { localStorage.setItem("siem-guardian-inventory", JSON.stringify({targets, window: $("window").value,
+    checks: state?.health_checks || [], detections: state?.detections || []})); } catch { /* Gizli modda depolama kapalı olabilir. */ }
 }
 function renderTargets() {
   $("target-count").textContent = targets.length;
@@ -154,6 +164,11 @@ function renderHealth() {
   for (const rule of rules) {
     const row = document.createElement("tr");
     [rule.name, rule.kind, `${rule.index} / ${rule.host} / ${rule.sourcetype}${rule.source ? " / " + rule.source : ""}`, `${rule.window_minutes} dk · ${rule.availability === "intermittent" ? "aralıklı" : "sürekli"}`].forEach((value) => textCell(row, String(value), "td"));
+    const actions = row.appendChild(document.createElement("td"));
+    const edit = textCell(actions, "Düzenle", "button", "text-button"); edit.type = "button";
+    edit.addEventListener("click", () => showRuleForm(rule.name));
+    const remove = textCell(actions, "Sil", "button", "text-button"); remove.type = "button";
+    remove.addEventListener("click", () => removeRule(rule.name));
     $("health-rules-body").append(row);
   }
   $("health-results-section").hidden = !results.length;
@@ -193,8 +208,62 @@ function renderHealth() {
     textCell(cells[1], detection.status, "span", "badge " + ({COVERED:"ok",IMPAIRED:"error",UNKNOWN:"delayed",PENDING:"neutral"}[detection.status] || "neutral"));
     textCell(cells[2], `${detection.mode === "any" ? "Alternatif" : "Tümü gerekli"}: ` + Object.entries(detection.evidence).map(([name,status]) => `${name} (${status})`).join(" · "));
     textCell(cells[3], detection.impact || (detection.status === "PENDING" ? "Kontrol bekleniyor." : detection.status === "UNKNOWN" ? "Sonuç belirsiz; hatalı veya yetersiz kontrolleri inceleyin." : "Kapsam doğrulandı."));
+    const edit = textCell(cells[3], "Düzenle", "button", "text-button"); edit.type = "button";
+    edit.addEventListener("click", () => showDetectionForm(detection.name));
+    const remove = textCell(cells[3], "Sil", "button", "text-button"); remove.type = "button";
+    remove.addEventListener("click", () => removeDetection(detection.name));
     $("detection-body").append(row);
   }
+  if ($("detection-form").hidden) renderDetectionEditor();
+}
+function formField(form, name) { return form.elements.namedItem(name); }
+function showKindFields() {
+  const kind = formField($("rule-form"), "kind").value;
+  $("rule-form").querySelectorAll("[data-kinds]").forEach((label) => { label.hidden = !label.dataset.kinds.split(" ").includes(kind); });
+}
+function showRuleForm(name = null) {
+  editingRule = name;
+  const form = $("rule-form"); form.reset();
+  const rule = state.health_checks.find((item) => item.name === name);
+  if (rule) for (const [key, value] of Object.entries(rule)) { const input = formField(form, key); if (input) input.value = value; }
+  const reference = formField(form, "activity_check"); reference.replaceChildren(new Option("Yok", ""));
+  for (const item of state.health_checks) if (item.name !== name && item.host === formField(form, "host").value)
+    reference.add(new Option(item.name, item.name));
+  if (rule?.activity_check) reference.value = rule.activity_check;
+  $("rule-form-title").textContent = rule ? "Sağlık kontrolünü düzenle" : "Sağlık kontrolü ekle";
+  showKindFields(); form.hidden = false; form.scrollIntoView({behavior:"smooth", block:"center"});
+}
+async function saveConfig(checks, detections) {
+  busy = true; buttonStates();
+  try { applyState(await api("/api/health/config", {checks, detections}), false); rememberLocal(); notice("Kurallar kaydedildi. Sonuçlar için sağlık kontrolünü çalıştırın.", "success"); return true; }
+  catch (error) { notice(error.message, "error"); return false; }
+  finally { busy = false; buttonStates(); }
+}
+async function removeRule(name) {
+  const checks = state.health_checks.filter((item) => item.name !== name).map((item) => item.activity_check === name ? {...item, activity_check:""} : item);
+  const detections = state.detections.map((item) => ({...item, checks:item.checks.filter((check) => check !== name)})).filter((item) => item.checks.length);
+  if (await saveConfig(checks, detections)) $("rule-form").hidden = true;
+}
+function renderDetectionEditor(selected = []) {
+  const list = $("detection-check-options"); list.replaceChildren();
+  for (const rule of state?.health_checks || []) {
+    const label = document.createElement("label");
+    const input = document.createElement("input"); input.type = "checkbox"; input.value = rule.name; input.checked = selected.includes(rule.name);
+    label.append(input, document.createTextNode(" " + rule.name)); list.append(label);
+  }
+}
+function showDetectionForm(name = null) {
+  if (!state?.health_checks?.length) return notice("Önce en az bir sağlık kontrolü ekleyin.", "info");
+  editingDetection = name;
+  const form = $("detection-form"); form.reset();
+  const detection = state.detections.find((item) => item.name === name);
+  if (detection) for (const [key, value] of Object.entries(detection)) {const input = formField(form, key); if (input) input.value = value;}
+  renderDetectionEditor(detection?.checks || []);
+  $("detection-form-title").textContent = detection ? "Detection düzenle" : "Detection ekle";
+  form.hidden = false; form.scrollIntoView({behavior:"smooth", block:"center"});
+}
+async function removeDetection(name) {
+  if (await saveConfig(state.health_checks, state.detections.filter((item) => item.name !== name))) $("detection-form").hidden = true;
 }
 function renderDiagnostics() {
   const diagnostic = state?.diagnostics;
@@ -241,8 +310,16 @@ async function poll() {
 }
 async function action(path, data, preserveTargets = false) {
   busy = true; buttonStates(); notice("");
-  try {applyState(await api(path, data), !preserveTargets); if (busy) await poll();}
-  catch (error) {busy = false; buttonStates(); notice(error.message, "error");}
+  try {applyState(await api(path, data), !preserveTargets); if (busy) await poll(); if (["/api/import", "/api/discover", "/api/check", "/api/targets"].includes(path)) rememberLocal(); return true;}
+  catch (error) {
+    busy = false;
+    let recovered = false;
+    try {const latest = await api("/api/state"); applyState(latest, !preserveTargets); if (busy) await poll(); recovered = true;}
+    catch { /* Asıl bağlantı hatası kullanıcıya gösterilir. */ }
+    buttonStates();
+    notice(recovered ? "İstek yanıtı kesildi; sunucunun son durumu yeniden okundu. İşlemin sonucunu ekranda doğrulayın." : error.message, recovered ? "info" : "error");
+    return false;
+  }
 }
 function payload() {return {window: $("window").value, targets};}
 function authMode(mode) {
@@ -276,10 +353,64 @@ $("csv-file").addEventListener("change", async (event) => {
 });
 $("health-file").addEventListener("change", async (event) => {
   const file = event.target.files[0]; if (!file) return;
-  try {if (file.size > 250000) throw new Error("Kontrol dosyası en fazla 250 KB olabilir."); const format = file.name.toLowerCase().endsWith(".csv") ? "csv" : "json"; await action("/api/health/import", {[format]: await file.text()}, true); notice("Sağlık kontrolleri yüklendi. Kaynak adlarını ve eşikleri inceleyin.", "success");}
+  try {if (file.size > 250000) throw new Error("Kontrol dosyası en fazla 250 KB olabilir."); const format = file.name.toLowerCase().endsWith(".csv") ? "csv" : "json"; if (await action("/api/health/import", {[format]: await file.text()}, true)) {rememberLocal(); notice("Sağlık kontrolleri yüklendi. Kaynak adlarını ve eşikleri inceleyin.", "success");}}
   catch (error) {notice(error.message, "error");} finally {event.target.value = "";}
 });
 $("health-run").addEventListener("click", () => action("/api/health/check", {}, true));
+$("rules-from-targets").addEventListener("click", async () => {
+  if (!targets.length) return notice("Önce Splunk'tan kaynakları getir veya hedef CSV yükle.", "info");
+  const checks = [...state.health_checks];
+  for (const target of targets) {
+    if (checks.length >= 50) break;
+    if (checks.some((rule) => rule.index === target.index && rule.host === target.host && rule.sourcetype === target.sourcetype && rule.kind === "presence" && !rule.source)) continue;
+    const base = target.name.trim() || `${target.host} / ${target.sourcetype}`;
+    let name = base, suffix = 2;
+    while (checks.some((rule) => rule.name === name)) name = `${base} (${suffix++})`;
+    checks.push({name, kind:"presence", index:target.index, host:target.host, sourcetype:target.sourcetype,
+      window_minutes:Math.max(120, Math.ceil(Number(target.max_delay_minutes) || 30) + 1), availability:"intermittent", min_events:1});
+  }
+  if (checks.length === state.health_checks.length) return notice("Yeni kaynak bulunmadı veya 50 kontrol sınırına ulaşıldı.", "info");
+  await saveConfig(checks, state.detections);
+});
+$("rule-new").addEventListener("click", () => showRuleForm());
+$("rule-cancel").addEventListener("click", () => {$("rule-form").hidden = true;});
+formField($("rule-form"), "kind").addEventListener("change", showKindFields);
+formField($("rule-form"), "host").addEventListener("change", () => {
+  const reference = formField($("rule-form"), "activity_check"); reference.replaceChildren(new Option("Yok", ""));
+  for (const rule of state.health_checks) if (rule.name !== editingRule && rule.host === formField($("rule-form"), "host").value)
+    reference.add(new Option(rule.name, rule.name));
+});
+$("rule-form").addEventListener("submit", async (event) => {
+  event.preventDefault(); const form = event.currentTarget, kind = formField(form, "kind").value;
+  const value = (key) => formField(form, key).value.trim();
+  const rule = {name:value("name"), kind, index:value("index"), host:value("host"), sourcetype:value("sourcetype"), window_minutes:value("window_minutes"), availability:value("availability")};
+  if (value("source")) rule.source = value("source");
+  if (rule.availability === "intermittent" && value("activity_check")) rule.activity_check = value("activity_check");
+  if (["presence", "event_id", "field", "route"].includes(kind)) rule.min_events = value("min_events");
+  if (kind === "event_id") {rule.event_id_field = value("event_id_field"); rule.event_id = value("event_id");}
+  if (kind === "field") {rule.field = value("field"); rule.min_present_percent = value("min_present_percent");}
+  if (kind === "timestamp") {for (const key of ["timestamp_source", "max_bad_percent", "max_age_minutes", "max_future_minutes", "max_parse_diff_seconds"]) rule[key] = value(key); rule.min_events = value("min_events_timestamp");}
+  if (kind === "volume") {rule.drop_percent = value("drop_percent"); rule.min_baseline_events = value("min_baseline_events");}
+  const checks = state.health_checks.filter((item) => item.name !== editingRule);
+  if (editingRule && editingRule !== rule.name) {
+    for (const item of checks) if (item.activity_check === editingRule) item.activity_check = rule.name;
+  }
+  checks.push(rule);
+  const detections = state.detections.map((item) => ({...item, checks:item.checks.map((name) => name === editingRule ? rule.name : name)}));
+  if (await saveConfig(checks, detections)) form.hidden = true;
+});
+$("detection-new").addEventListener("click", () => showDetectionForm());
+$("detection-cancel").addEventListener("click", () => {$("detection-form").hidden = true;});
+$("detection-form").addEventListener("submit", async (event) => {
+  event.preventDefault(); const form = event.currentTarget;
+  const checks = [...$("detection-check-options").querySelectorAll("input:checked")].map((input) => input.value);
+  if (!checks.length) return notice("Detection için en az bir sağlık kontrolü seçin.", "error");
+  const detection = {name:formField(form,"name").value.trim(), technique:formField(form,"technique").value.trim(),
+    mode:formField(form,"mode").value, impact:formField(form,"impact").value.trim(), checks};
+  const detections = state.detections.filter((item) => item.name !== editingDetection);
+  detections.push(detection);
+  if (await saveConfig(state.health_checks, detections)) form.hidden = true;
+});
 async function download(path, filename) {
   const response = await fetch(path, {credentials:"same-origin", cache:"no-store"});
   if (!response.ok) {const result = await response.json(); throw new Error(result.error);}
@@ -299,4 +430,17 @@ document.querySelectorAll("[data-filter]").forEach((button) => button.addEventLi
 }));
 $("result-search").addEventListener("input", renderReports);
 authMode("password");
-api("/api/state").then((next) => {applyState(next); if (busy) poll();}).catch(() => notice("Arayüz başlatılamadı. Sunucuyu kontrol edip sayfayı yenile.", "error"));
+async function restoreLocal() {
+  let saved;
+  try {saved = JSON.parse(localStorage.getItem("siem-guardian-inventory") || "null");} catch {return;}
+  if (!saved || busy) return;
+  try {
+    if (!state.targets.length && Array.isArray(saved.targets) && saved.targets.length)
+      applyState(await api("/api/targets", {targets:saved.targets, window:saved.window || 120}));
+    if (!state.health_checks.length && Array.isArray(saved.checks) && saved.checks.length)
+      applyState(await api("/api/health/config", {checks:saved.checks, detections:saved.detections || []}));
+    if ((saved.targets?.length || saved.checks?.length) && (state.targets.length || state.health_checks.length))
+      notice("Yerel envanter tarayıcıdan geri yüklendi. Splunk bağlantısını yeniden kurup kontrolleri çalıştırın.", "info");
+  } catch (error) { notice("Kaydedilen envanter geri yüklenemedi: " + error.message + " Dosyanızı tekrar yükleyebilirsiniz.", "error"); }
+}
+api("/api/state").then(async (next) => {applyState(next); if (busy) await poll(); else await restoreLocal();}).catch((error) => notice(error.message, "error"));
