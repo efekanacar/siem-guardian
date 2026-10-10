@@ -64,7 +64,9 @@ class SplunkAdapter(BaseAdapter):
                 results = [{"server_now": str(NOW.timestamp())}]
             else:
                 results = self.rows
-                assert "latest=" not in search and "_index_" not in search
+                assert "latest=+10y" in search
+                assert f"_index_earliest={int(START.timestamp())}" in search
+                assert f"_index_latest={int(NOW.timestamp())}" in search
                 assert "BY index host sourcetype" in search
                 assert form["adhoc_search_level"] == ["verbose"]
                 assert form["allow_partial_results"] == ["false"]
@@ -113,10 +115,10 @@ class SplunkFlowTests(unittest.TestCase):
             self.assertEqual([r.status for r in reports], ["OK", "DELAYED", "NO_DATA", "NO_DATA"])
             self.assertEqual(reports[0].delay_minutes, 1)
             self.assertIn("150.0 dakika", reports[2].note)
-            self.assertIn("sonuçta yok", reports[3].note)
+            self.assertIn("Kontrol penceresinde", reports[3].note)
             self.assertEqual(len(adapter.jobs), 2)
             self.assertEqual(len(adapter.calls), 6)
-            self.assertIn('(index="linux" OR index="windows") earliest=0', adapter.searches[1])
+            self.assertIn('(index="linux" OR index="windows") earliest=0 latest=+10y', adapter.searches[1])
             diagnostic = client.check_diagnostics
             self.assertEqual((diagnostic["returned_rows"], diagnostic["matched_targets"]), (3, 3))
             self.assertNotIn("private-token", json.dumps(diagnostic))
@@ -130,6 +132,16 @@ class SplunkFlowTests(unittest.TestCase):
                 client.prepare_check(TARGETS, START, NOW)
             self.assertIn("satır sayısı uyuşmuyor", str(raised.exception))
             self.assertEqual(client.check_diagnostics["job"]["resultCount"], 15)
+            self.assertIsNone(client.snapshot)
+
+    def test_corrupt_bucket_failure_does_not_claim_zero_matching_sources(self):
+        from unittest.mock import Mock
+        with self.make_client(SplunkAdapter([])) as client:
+            client.run_search = Mock(side_effect=CheckError("Splunk bazı bucket'lardaki ham olayları okuyamadı."))
+            with self.assertRaises(CheckError):
+                client.prepare_check(TARGETS, START, NOW)
+            self.assertIsNone(client.check_diagnostics["returned_rows"])
+            self.assertIsNone(client.check_diagnostics["matched_targets"])
             self.assertIsNone(client.snapshot)
 
     def test_truncated_result_page_is_error(self):
