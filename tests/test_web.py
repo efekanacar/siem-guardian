@@ -269,6 +269,21 @@ class WebTests(unittest.TestCase):
         self.assertIn("IMPAIRED", self.browser.get(self.url + "/api/detection-report.csv", timeout=3).text)
         self.assertNotIn("private-token", json.dumps(done))
 
+    def test_health_editor_config_validates_and_resets_results(self):
+        rule = {"name": "Windows Security", "kind": "presence", "index": "example_windows",
+                "host": "win.example.invalid", "sourcetype": "XmlWinEventLog:Security",
+                "window_minutes": 120, "availability": "intermittent", "min_events": 1}
+        detection = {"name": "Security coverage", "technique": "T1059.001", "mode": "all",
+                     "checks": ["Windows Security"], "impact": "Tespit kabiliyeti etkilenmiş olabilir."}
+        self.assertEqual(self.post("/api/health/config", {"checks": [rule], "detections": [detection]}).status_code, 200)
+        self.assertEqual(self.state["health_checks"][0]["name"], "Windows Security")
+        self.assertEqual(self.state["detection_results"][0]["status"], "PENDING")
+        self.assertEqual(self.post("/api/health/config", {"checks": [], "detections": [detection]}).status_code, 400)
+        self.assertEqual(len(self.state["health_checks"]), 1)
+        self.assertEqual(self.post("/api/health/config", {"checks": [], "detections": []}).status_code, 200)
+        self.assertEqual(self.state["health_checks"], [])
+        self.assertEqual(self.state["detections"], [])
+
     def test_health_csv_inventory_import(self):
         from pathlib import Path
         content = Path("checks.example.csv").read_text(encoding="utf-8")
