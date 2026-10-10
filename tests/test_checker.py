@@ -122,15 +122,16 @@ class ValidationTests(unittest.TestCase):
 
     def test_query_escapes_indexes_and_does_not_inject_host_or_type(self):
         t = target(host='lab\\node" | stats count')
-        search = build_search([t], NOW)
+        search = build_search([t], START, NOW)
         self.assertEqual(spl_string(t.host, "host"), '"lab\\\\node\\" | stats count"')
         self.assertNotIn("lab", search)
-        self.assertIn('search (index="demo_apps") earliest=0', search)
+        self.assertIn('search (index="demo_apps") earliest=0 latest=+10y', search)
         self.assertIn("eval arrival_epoch=_indextime", search)
         self.assertIn("AS index_time_count", search)
         self.assertNotIn("max(_time)", search)
-        self.assertNotIn("latest=", search)
-        self.assertNotIn("_index_", search)
+        self.assertIn(f"_index_earliest={int(START.timestamp())}", search)
+        self.assertIn(f"_index_latest={int(NOW.timestamp())}", search)
+        self.assertIn(f"arrival_epoch>={int(START.timestamp())} AND arrival_epoch<{int(NOW.timestamp())}", search)
         self.assertIn("BY index host sourcetype", search)
 
     def test_macro_and_control_characters_rejected(self):
@@ -169,14 +170,14 @@ class SplunkTests(unittest.TestCase):
                 client.get_server_time()
         client.close()
 
-    def test_batch_reads_arrival_without_index_time_search_bounds(self):
+    def test_batch_reads_arrival_with_index_time_search_bounds(self):
         client = SplunkClient(config())
         client.run_search = Mock(return_value={"results": [arrival(target())]})
         self.assertEqual(client.fetch_latest(target(), START, NOW), NOW - timedelta(minutes=1))
         search = client.run_search.call_args.args[0]
-        self.assertNotIn("_index_earliest", search)
-        self.assertNotIn("_index_latest", search)
-        self.assertIn(f"arrival_epoch < {NOW.timestamp():.6f}", search)
+        self.assertIn(f"_index_earliest={int(START.timestamp())}", search)
+        self.assertIn(f"_index_latest={int(NOW.timestamp())}", search)
+        self.assertIn(f"arrival_epoch<{int(NOW.timestamp())}", search)
         self.assertNotIn("253402300799", search)
         client.run_search.assert_called_once()
         client.close()
@@ -287,6 +288,11 @@ class SplunkTests(unittest.TestCase):
         reject_messages({"messages": [{"type": "WARN", "text": "Unknown warning password=private"}]}, warnings)
         self.assertEqual(len(warnings), 1)
         self.assertNotIn("private", warnings[0])
+        rawdata = "Failed to read size=35 event(s) from rawdata in bucket='main~secret'. Rawdata may be corrupt. Results may be incomplete!"
+        with self.assertRaises(CheckError) as raised:
+            reject_messages({"messages": [{"type": "ERROR", "text": rawdata}]})
+        self.assertIn("bucket", str(raised.exception))
+        self.assertNotIn("main~secret", str(raised.exception))
 
     def test_waits_for_done_before_fetching_results(self):
         client = SplunkClient(config())
