@@ -95,11 +95,12 @@ olay zamanı `_time` değildir. Arama normal tamamlanmadan sonuç alınmaz.
 Hatalı hedef ERROR olur; diğer hedefler devam eder. Kontrol manuel başlatılır.
 
 Araç hedef indexlerde **tek toplu arama** yapar ve index/host/sourcetype birleşimine
-göre son gelişleri alır. Kontrol aralığı `_indextime` üzerinden Python'da uygulanır;
-event-time için `earliest=0` ve REST'in All time varsayılanı kullanılır. Yapay
-gelecek `latest` sınırı veya `_index_*` arama filtresi yoktur. Daha eski geliş
-NO_DATA olarak kalır; görünür son geliş tarihi ve kaç dakika önce olduğu yazılır.
-Hiç üçlü eşleşmiyorsa hedef alanlarını ve index yetkisini kontrol etmeniz istenir.
+göre pencere içindeki son gelişleri alır. Geniş event-time sınırı
+`earliest=0 latest=+10y`, eski olay zamanıyla yeni gelen logları da kapsar.
+Kontrol aralığı `_index_earliest`/`_index_latest` ve kesin `_indextime` koşuluyla
+uygulanır. Böylece tüm geçmişin eski bucket'ları gereksiz taranmaz. Pencereden
+daha eski gelişler aranmamış olur; `NO_DATA` için son geliş zamanı boş bırakılır.
+Hiç üçlü eşleşmiyorsa hedef alanlarını ve index yetkisini kontrol edin.
 API boş/eksik satır döndürürken job'ın sonuç sayısı daha yüksekse ERROR verilir.
 
 **Arama ayrıntıları** bölümünü açarak Splunk ölçüm zamanını, pencereyi, gerçek
@@ -140,16 +141,19 @@ Arayüzü genel ağa açmak için bir host seçeneği sunulmaz; yerel, tek kulla
 - **TLS hatası**: CA dosyası ve host/IP eşleşmesini kontrol edin.
 - **Bağlantı/timeout**: Ubuntu'dan management 8089 portuna ağ erişimi gerekir.
 - **Keşif boş**: Hesabın index görünürlüğünü ve ortamda veri bulunduğunu kontrol edin.
-- **NO_DATA**: Satırdaki açıklamayı okuyun. Son geliş aralık dışındaysa düşük hacimli
-  kaynağın beklenen sıklığına göre pencereyi büyütün; pencere her eşikten uzun olmalı.
+- **NO_DATA**: Kaynak aralıklı veya düşük hacimliyse pencereyi beklenen sıklığa göre
+  büyütün; pencere her eşikten uzun olmalı.
   Hiç eşleşme yoksa gerçek index/host/sourcetype değerlerini ve index yetkisini doğrulayın.
   `source` dosya/kanal adını `sourcetype` yerine yazmayın. Splunk'tan getir, mevcut
   hedefleri silmez; eski veya yanlış hedef satırlarını elle kaldırabilirsiniz.
 - **Bütün hedefler NO_DATA**: Arama ayrıntılarını açın. Dönen kaynak sayısı pozitif,
   eşleşen hedef sayısı sıfırsa hedef alanlarını tabloda görünen değerlerle karşılaştırın.
-  Son gelişler eskiyse aralığı ve kaynakların gerçekten yeni log gönderip göndermediğini
+  Kontrol aralığını ve kaynakların gerçekten yeni log gönderip göndermediğini
   kontrol edin. Dönen satır sayısı sıfırsa gösterilen SPL'yi aynı hesapla Splunk Search'te
   **All time** seçerek deneyin. JSON tanı raporu bu farkı incelemek için kullanılabilir.
+- **Bucket okuma hatası**: Splunk Search'teki **Show errors** listesini açın. Bozuk
+  bucket kontrol penceresindeyse sonuç kısmi olabilir; araç bunu ERROR olarak bırakır.
+  İlgili `search.log` ve bucket sağlığını Splunk yöneticisi incelemelidir.
 - **Keşif uyarısı**: Kaldırılma veya tanınmayan WARN mesajı keşfi durdurmaz;
   sarı alanda açıklama görünür. Listeyi beklenen hedeflerinizle karşılaştırın.
 - **Arama uyarısı/hatası**: Eksik sonuç, indexer, limit, yetki, lisans veya zaman
