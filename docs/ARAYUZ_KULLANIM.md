@@ -1,16 +1,140 @@
 # Arayüz kullanım rehberi
 
-Bu rehberde eski kaynak sürekliliği akışı da bulunur. Yeni **SIEM Guardian**
-paneli için önce `checks.example.json` dosyasını
-`checks.json` adıyla kopyalayıp gerçek index/host/sourcetype ve eşikleri yazın.
-Arayüzde Splunk'a bağlanın, **Kontrol JSON / CSV yükle** ile dosyayı seçin ve
-**Sağlık kontrolünü çalıştır** düğmesine basın. Sonuçlarda her kuralın durumu,
+SIEM Guardian'da kuralları artık arayüzden oluşturabilirsiniz. Önce Splunk'a
+bağlanın ve **Splunk'tan getir** ile görünen kaynakları listeleyin. Ardından
+**İzlenecek kaynaklardan kurallar oluştur** ile her kaynak için bir log varlığı
+kontrolü ekleyin. Daha özel kontroller için **Kontrol ekle**, detection
+bağımlılıkları için **Detection ekle** kullanın. Dosya ile çalışmak isteyenler
+`checks.json` dosyasını **Kontrol JSON / CSV yükle** ile de açabilir.
+**Sağlık kontrolünü çalıştır** düğmesine basınca her kuralın durumu,
 ölçülen değer, eşik, açıklama ve açılabilir SPL görünür. **CSV raporu indir** ile
 sonuçları alın. Detection Dependency Monitoring bölümünde etkilenen tespitleri
 görüp detection CSV raporunu indirebilirsiniz. Örnek JSON'u arayüzden de
-indirebilirsiniz. Gerçek `checks.json`
-yerel kalır. Kural türleri ve alanları için [README](../README.md#sağlık-kontrolleri)
+indirebilirsiniz. Kural türleri ve alanları için [README](../README.md#sağlık-kontrolleri)
 bölümüne bakın.
+
+## Arayüzde ilk kurulum: adım adım
+
+1. Proje klasöründe çalışan eski `webapp.py` varsa terminalde `Ctrl+C` ile
+   durdurun. Güncel ZIP'i ayrı klasöre çıkarın. Sanal ortamı o yeni klasörde
+   oluşturun. **Aktif eski `.venv` içinden yeni `.venv` oluşturmayın**; eskisini
+   `deactivate` ile kapatın. `python3 -m venv .venv`, `source .venv/bin/activate`,
+   `python -m pip install -r requirements.txt`, `python webapp.py` çalıştırın.
+2. Ubuntu içindeki tarayıcıdan `http://127.0.0.1:8787` açın. Başka bilgisayarda
+   açacaksanız aşağıdaki SSH tüneli bölümünü izleyin. Sayfanın portu, terminalde
+   yazan portla aynı olmalı.
+3. Solda `https://192.168.3.131:8089` management adresini doğrulayın. Splunk
+   kullanıcı/parola veya token girin. Sertifikanız güvenilir değilse yalnız lab
+   ortamında TLS doğrulamasını bilinçli olarak kapatın. **Bağlan** seçin.
+4. **Splunk'tan getir** seçin. Kaynaklar tablosunda `index`, `host` ve
+   `sourcetype` değerlerini inceleyin. Eksik beklenen kaynakları **Hedef ekle**
+   veya hedef CSV ile tanımlayın; keşif yalnız daha önce görülmüş kaynakları bulur.
+5. **İzlenecek kaynaklardan kurallar oluştur** seçin. Bu düğme her kaynak için
+   `presence` kuralı oluşturur; makine kapalı olabileceği için başlangıçta
+   **aralıklı açık** olarak işaretler. Gerçekten sürekli çalışması gereken
+   kaynakta **Düzenle** ile **sürekli açık** seçin. Aralığı log sıklığına göre
+   ayarlayın; düşük hacimli kaynak için 120 dakika kısa olabilir.
+6. **Kontrol ekle** ile `Event ID`, `gerekli alan`, `zaman`, `hacim` veya
+   `index yönlendirmesi` seçin. Index/host/sourcetype değerlerini aynı Splunk
+   kaynak satırından kopyalayın. Source, yalnız belirli dosyayı/kanalı izlemek
+   istiyorsanız doldurulur. Form yalnız seçilen kontrol türünün ayarlarını
+   gösterir. **Kontrolü kaydet** API'de doğrular; hatalı alan varsa nedenini
+   bildirir.
+7. **Detection ekle** seçin. Ad ve MITRE tekniğini yazın, ona bağlı sağlık
+   kontrollerini işaretleyin. `Alternatif: biri yeterli` seçimi, örneğin Sysmon
+   Event ID 1 **veya** PowerShell 4104 için uygundur. `Zorunlu: hepsi gerekli`
+   tümünün sağlıklı olmasını ister. Etki açıklamasına örneğin
+   `PowerShell tespit kabiliyeti etkilenmiş olabilir.` yazın. Bu panelin dolması
+   için detection tanımı gerekir; sadece hedef eklemek yetmez.
+8. **Sağlık kontrolünü çalıştır** seçin. Sonuçlarda ölçülen değeri ve eşiği,
+   gerekirse **SPL ve iş bilgisi** ayrıntısını inceleyin. Detection paneli aynı
+   sonuçları bağımlılıklara bağlar. Kaynak sürekliliği için ayrıca sayfanın
+   altındaki **Kontrolü çalıştır** gerekir; iki analiz ayrı düğmelerdir.
+9. **Kuralları indir** ile `checks.json` yedeğini, **Hedef CSV indir** ile
+   `targets.csv` yedeğini saklayın. Bu dosyalarda gerçek host/index adları
+   bulunabilir; GitHub'a koymayın. Tarayıcı aynı origin için hedef ve kuralları
+   yerel depolamada tutar ve sunucu yeniden başladığında geri yüklemeyi dener;
+   parola ve token kaydetmez. Gizli mod/depolama temizliği bu yedeği siler.
+
+**Üst kartlar neden 0/—?** Beklenen kaynak, sağlık kuralı tanımlanmış benzersiz
+`index + host + sourcetype + source` sayısıdır. Yalnız hedef tablosunu doldurmak
+bu sayıyı artırmaz; 5. adımı yapın. Sağlıklı/problemli/belirsiz kartları ilk
+**Sağlık kontrolünü çalıştır** sonrasında sayılır. Sonuç alınmadan `—`
+gösterilmesi gerçek veri varmış gibi davranmamak içindir.
+
+**“The operation was aborted.”** Tarayıcı isteğinin iptal edildiğini veya
+yerel sunucuyla bağlantının koptuğunu söyler; tek başına Splunk arama sonucu
+değildir. `python webapp.py` terminalinin hâlâ çalıştığını ve doğru portu
+açtığınızı kontrol edin. Eski ZIP'den çalışan süreci durdurup yeni klasörden
+başlatın, sayfayı yenileyin ve yeniden bağlanın. Güncel arayüz bu durumu Türkçe
+mesajla açıklar; bir POST yanıtı kesilirse sunucu durumunu tekrar okur. Yine
+olursa terminaldeki hata ve tarayıcı geliştirici araçları Network sekmesindeki
+başarısız isteğin yolunu paylaşın; kimlik bilgilerini paylaşmayın.
+
+## JSON ile tanımlamak isterseniz
+
+Arayüzden **Örnek JSON indir** seçip dosyayı `checks.json` adıyla kaydedin.
+Bu dosyadaki `.invalid` host ve `example_` index adları sahtedir; Splunk'ta
+gördüğünüz gerçek değerlerle **aynı satırdan** değiştirin. Basit bir örnek:
+
+```json
+{
+  "checks": [
+    {
+      "name": "Windows Security",
+      "kind": "presence",
+      "index": "GERCEK_WINDOWS_INDEX",
+      "host": "GERCEK_WINDOWS_HOST",
+      "sourcetype": "XmlWinEventLog:Security",
+      "window_minutes": 240,
+      "availability": "intermittent",
+      "min_events": 1
+    },
+    {
+      "name": "Windows 4688",
+      "kind": "event_id",
+      "index": "GERCEK_WINDOWS_INDEX",
+      "host": "GERCEK_WINDOWS_HOST",
+      "sourcetype": "XmlWinEventLog:Security",
+      "window_minutes": 240,
+      "availability": "intermittent",
+      "activity_check": "Windows Security",
+      "event_id_field": "auto",
+      "event_id": "4688",
+      "min_events": 1
+    }
+  ],
+  "detections": [
+    {
+      "name": "Süreç oluşturma kapsamı",
+      "technique": "T1059",
+      "mode": "all",
+      "checks": ["Windows 4688"],
+      "impact": "Süreç oluşturma tespit kabiliyeti etkilenmiş olabilir."
+    }
+  ]
+}
+```
+
+`name`, `kind`, `index`, `host`, `sourcetype`, `window_minutes` her kontrol için
+zorunludur. `source` isteğe bağlıdır; `WinEventLog:Security` gibi gerçek source
+değerini biliyorsanız ekleyin. `availability: "intermittent"`, makine bazen
+kapalıysa uygundur; sessizlik normalde `QUIET` olur. `activity_check`, **aynı
+hosttaki** başka bir kontrolün adıdır: Security logu akarken 4688 durursa
+`ALERT` olarak ele alınabilir. Her zaman açık bir sunucu için
+`availability: "continuous"` seçin ve `activity_check` alanını kaldırın.
+
+`event_id_field: "auto"`, `EventCode`, `EventID` ve Windows XML `<EventID>`
+alanlarını dener. Gerçekte bulunmayan Sysmon'u eklemeyin; kurulum ve Splunk
+doğrulamasından sonra kendi `index`, `host`, `sourcetype` değerleriyle ekleyin.
+`detections[*].checks` içindeki her ad, `checks[*].name` ile birebir aynı olmalıdır.
+`mode: "any"` alternatif kaynaklardan biri yeterli demektir; `"all"` tümü
+gerekli demektir. Bu değerlendirme detection kuralının gerçekten çalıştığını
+değil, ihtiyaç duyduğu logların görünüp görünmediğini sınar.
+
+JSON'u UTF-8 kaydedip **Kontrol JSON / CSV yükle** ile seçin. Hata çıkarsa
+satırdaki yanlış alan, tür veya isim eşleşmesini düzeltin. Kontrolleri
+arayüzden düzenlerseniz son halini **Kuralları indir** ile tekrar kaydedin.
 
 ## Ubuntu kurulumu
 
