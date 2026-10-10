@@ -35,6 +35,8 @@ class ManagementHTTPError(CheckError):
 def message_detail(text: str) -> tuple[str, bool]:
     """Ham Splunk mesajını yayımlamadan anlaşılır bir teşhis üretir."""
     categories = [
+        (r"rawdata|corrupt|failed to read .*event.*bucket",
+         "Splunk bazı bucket'lardaki ham olayları okuyamadı; sonuç eksik olabilir. İlgili search.log ve bucket sağlığını kontrol edin.", True),
         (r"partial|incomplete|truncat|skipp|search.?peer|peer.*(?:fail|unavail)|bucket.*(?:missing|reduc)",
          "Arama bazı verileri veya indexer'ları kapsamıyor. Splunk Search mesajlarını ve indexer erişimini kontrol edin.", True),
         (r"limit|exceed|memory|finaliz|maximum|timed? ?out",
@@ -57,22 +59,22 @@ def spl_string(value: str, field: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def build_search(targets: list[Target], end: datetime) -> str:
-    """Hedef indexlerden tek envanter; tam üçlü eşleşmesi Python'da yapılır."""
-    end = as_utc(end)
-    if not targets or not 0 < end.timestamp() < MAX_EPOCH:
+def build_search(targets: list[Target], start: datetime, end: datetime) -> str:
+    """Kontrol penceresindeki gelişleri toplar; tam üçlü eşleşme Python'dadır."""
+    start, end = as_utc(start), as_utc(end)
+    lower, upper = int(start.timestamp()), int(end.timestamp())
+    if not targets or not 0 < lower < upper < MAX_EPOCH:
         raise CheckError("Arama hedefleri veya ölçüm zamanı geçersiz.")
     indexes = " OR ".join("index=" + spl_string(index, "index") for index in sorted({t.index for t in targets}))
-    upper = f"{end.timestamp():.6f}"
-    # REST jobs varsayılanı All time; earliest=0 ile event-time alt sınırı açık.
-    # _index_* veya gelecekteki yapay latest sınırı kullanma. Eski olayın yeni
-    # gelişini ve son gelişin pencere dışında oluşunu aynı aramada gör.
+    # Geniş event-time aralığı, yeni indekslenen eski/geç tarihli olayları tutar.
+    # Index-time sınırları eski, bozuk bucket'ları ve gereksiz tüm zaman taramasını
+    # dışlar. where üst sınırı kesin [start, end) biçimine getirir.
     return (
-        f"search ({indexes}) earliest=0 "
-        "| eval arrival_epoch=_indextime "
-        f"| eval before_check=if(arrival_epoch < {upper}, arrival_epoch, null()) "
+        f"search ({indexes}) earliest=0 latest=+10y "
+        f"_index_earliest={lower} _index_latest={upper} "
+        f"| eval arrival_epoch=_indextime | where arrival_epoch>={lower} AND arrival_epoch<{upper} "
         "| stats count AS matched_count count(arrival_epoch) AS index_time_count "
-        "count(before_check) AS before_check_count max(before_check) AS last_seen_epoch "
+        "count(arrival_epoch) AS before_check_count max(arrival_epoch) AS last_seen_epoch "
         "max(arrival_epoch) AS latest_any_epoch BY index host sourcetype"
     )
 
@@ -241,11 +243,11 @@ class SplunkClient:
             raise CheckError("Kontrol zaman sınırları geçersiz.")
         self.snapshot, self.snapshot_window = None, None
         self.snapshot_indexes = set()
-        search = build_search(targets, end)
+        search = build_search(targets, start, end)
         self.check_diagnostics = {"measurement_utc": stamp(end), "window_start_utc": stamp(start),
                                   "window_end_utc": stamp(end), "search": search,
-                                  "expected_targets": len(targets), "returned_rows": 0,
-                                  "matched_targets": 0, "sources": [], "error": ""}
+                                  "expected_targets": len(targets), "returned_rows": None,
+                                  "matched_targets": None, "sources": [], "error": ""}
         try:
             payload = self.run_search(search)
             if payload.get("results") == [] and self.last_job.get("eventCount", 0) > 0:
@@ -275,7 +277,7 @@ class SplunkClient:
         if isinstance(value, CheckError):
             raise value
         if value is None:
-            return NoData("Arama tamamlandı, bu index/host/sourcetype üçlüsü sonuçta yok. Arama ayrıntılarındaki dönen kaynaklarla hedefi ve index yetkisini karşılaştırın.")
+            return NoData("Kontrol penceresinde bu index/host/sourcetype üçlüsünden geliş yok. Kaynak kapalı, düşük hacimli veya erişim dışında olabilir; hedefi ve index yetkisini doğrulayın.")
         last = value.last_before_check
         if last is not None and last >= start:
             return last
