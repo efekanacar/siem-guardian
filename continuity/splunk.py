@@ -73,9 +73,8 @@ def build_search(targets: list[Target], start: datetime, end: datetime) -> str:
         f"search ({indexes}) earliest=0 latest=+10y "
         f"_index_earliest={lower} _index_latest={upper} "
         f"| eval arrival_epoch=_indextime | where arrival_epoch>={lower} AND arrival_epoch<{upper} "
-        "| stats count AS matched_count count(arrival_epoch) AS index_time_count "
-        "count(arrival_epoch) AS before_check_count max(arrival_epoch) AS last_seen_epoch "
-        "max(arrival_epoch) AS latest_any_epoch BY index host sourcetype"
+        "| stats count AS matched_count max(arrival_epoch) AS last_seen_epoch "
+        "BY index host sourcetype"
     )
 
 
@@ -128,8 +127,7 @@ def stamp(value) -> str:
 
 @dataclass(frozen=True)
 class Arrival:
-    last_before_check: datetime | None
-    latest_any: datetime
+    last_seen: datetime
     matched_count: int
 
 
@@ -152,18 +150,12 @@ def parse_results(payload: dict, end: datetime) -> dict[tuple[str, str, str], Ar
             raise CheckError("Splunk hedef alanları eksik, geçersiz veya yinelenmiş; sonuç kabul edilmedi.") from None
         try:
             matched = number(row["matched_count"], count=True)
-            indexed = number(row["index_time_count"], count=True)
-            before = number(row["before_check_count"], count=True)
-            if not 0 <= before <= indexed <= matched or matched == 0:
-                raise CheckError("Splunk olay sayaçları tutarsız.")
-            if matched != indexed:
-                raise CheckError("Eşleşen olaylarda _indextime okunamadı; veri yok kabul edilmedi.")
-            latest = datetime.fromtimestamp(number(row["latest_any_epoch"]), timezone.utc)
-            raw = row.get("last_seen_epoch")
-            last = datetime.fromtimestamp(number(raw), timezone.utc) if before else None
-            if (not before and raw not in (None, "")) or (last and (last >= as_utc(end) or last > latest)):
+            if matched == 0:
+                raise CheckError("Splunk olay sayacı tutarsız.")
+            last = datetime.fromtimestamp(number(row["last_seen_epoch"]), timezone.utc)
+            if last >= as_utc(end):
                 raise CheckError("Splunk son geliş zamanı ölçüm sınırı/sayacıyla tutarsız.")
-            found[key] = Arrival(last, latest, int(matched))
+            found[key] = Arrival(last, int(matched))
         except CheckError as exc:
             found[key] = exc
         except (KeyError, TypeError, ValueError, OverflowError, OSError):
@@ -262,8 +254,7 @@ class SplunkClient:
         sources = []
         for key, value in self.snapshot.items():
             sources.append(dict(zip(("index", "host", "sourcetype"), key),
-                                last_before_check_utc=stamp(value.last_before_check) if isinstance(value, Arrival) else "",
-                                latest_any_utc=stamp(value.latest_any) if isinstance(value, Arrival) else "",
+                                last_before_check_utc=stamp(value.last_seen) if isinstance(value, Arrival) else "",
                                 matched_events=value.matched_count if isinstance(value, Arrival) else None,
                                 error=str(value) if isinstance(value, CheckError) else ""))
         self.check_diagnostics.update(returned_rows=len(self.snapshot),
@@ -277,17 +268,23 @@ class SplunkClient:
         if isinstance(value, CheckError):
             raise value
         if value is None:
-            return NoData("Kontrol penceresinde bu index/host/sourcetype üçlüsünden geliş yok. Kaynak kapalı, düşük hacimli veya erişim dışında olabilir; hedefi ve index yetkisini doğrulayın.")
-        last = value.last_before_check
-        if last is not None and last >= start:
+            other_indexes = sorted({index for (index, host, sourcetype), result in self.snapshot.items()
+                                    if host == target.host and sourcetype == target.sourcetype
+                                    and index != target.index and isinstance(result, Arrival)})
+            if other_indexes:
+                return NoData("Bu host/sourcetype kontrol penceresinde başka index'te görüldü: "
+                              + ", ".join(other_indexes[:3]) + ". Hedef index değerini doğrulayın.")
+            same_host = any(host == target.host and isinstance(result, Arrival)
+                            for (_, host, _), result in self.snapshot.items())
+            if same_host:
+                return NoData("Bu hosttan başka loglar geliyor; beklenen sourcetype bu kontrol penceresinde görünmedi. Kanalı, düşük hacmi ve hedef alanlarını doğrulayın.")
+            return NoData("Bu hosttan kontrol penceresinde hedef indexlerde log görünmedi. Makine açık olsa bile forwarder, yönlendirme, index yetkisi veya zaman aralığı etkili olabilir.")
+        last = value.last_seen
+        if last >= start:
             return last
         window = (end - start).total_seconds() / 60
-        if last is not None:
-            delay = (end - last).total_seconds() / 60
-            return NoData(f"Görünür son geliş: {stamp(last)} ({delay:.1f} dakika önce). Kontrol aralığı {window:g} dakika; son geliş aralığın dışında.")
-        if (value.latest_any - end).total_seconds() > 300:
-            raise CheckError(f"Geliş zamanı {stamp(value.latest_any)}, Splunk ölçüm saatinden ileride. Search head/indexer saatlerini kontrol edin.")
-        return NoData(f"Görünür geliş {stamp(value.latest_any)}, ölçüm başlangıcına eşit veya sonra. Bu kontrolde üst sınır hariçtir; yeniden kontrol edin.")
+        delay = (end - last).total_seconds() / 60
+        return NoData(f"Görünür son geliş: {stamp(last)} ({delay:.1f} dakika önce). Kontrol aralığı {window:g} dakika; son geliş aralığın dışında.")
 
     def test_connection(self) -> None:
         payload = self.request("GET", "/services/authentication/current-context",
