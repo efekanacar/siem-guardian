@@ -30,8 +30,8 @@ Makineleriniz bazen kapalıysa kaynağı **aralıklı** seçebilirsiniz. Veri g�
 ```bash
 sudo apt update
 sudo apt install -y git python3 python3-venv python3-pip
-git clone https://github.com/efekanacar/splunk-log-continuity-checker.git
-cd splunk-log-continuity-checker
+git clone https://github.com/efekanacar/siem-guardian.git
+cd siem-guardian
 /usr/bin/python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
