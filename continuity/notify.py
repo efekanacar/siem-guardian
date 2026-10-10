@@ -14,10 +14,10 @@ def issue_payload(results, detections: list[dict]) -> dict:
     return {
         "tool": "SIEM Guardian",
         "health_issues": [{"name": result.rule.name, "status": result.status, "details": result.details}
-                          for result in results if result.status != "OK"],
+                          for result in results if result.status in {"ALERT", "NO_DATA"}],
         "detection_issues": [{"name": value["name"], "technique": value["technique"],
                               "status": value["status"], "impact": value["impact"]}
-                             for value in detections if value["status"] not in {"COVERED", "PENDING"}],
+                             for value in detections if value["status"] == "IMPAIRED"],
     }
 
 
