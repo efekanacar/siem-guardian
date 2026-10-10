@@ -8,6 +8,18 @@
       "sourcetype": "linux_secure",
       "source": "/var/log/auth.log",
       "window_minutes": 60,
+      "availability": "intermittent",
+      "min_events": 1
+    },
+    {
+      "name": "Windows Security akışı",
+      "kind": "presence",
+      "index": "example_windows",
+      "host": "windows-01.example.invalid",
+      "sourcetype": "XmlWinEventLog:Security",
+      "source": "WinEventLog:Security",
+      "window_minutes": 60,
+      "availability": "intermittent",
       "min_events": 1
     },
     {
@@ -17,6 +29,8 @@
       "host": "windows-01.example.invalid",
       "sourcetype": "XmlWinEventLog:Microsoft-Windows-Sysmon/Operational",
       "window_minutes": 60,
+      "availability": "intermittent",
+      "activity_check": "Windows Security akışı",
       "event_id_field": "auto",
       "event_id": "1",
       "min_events": 1
