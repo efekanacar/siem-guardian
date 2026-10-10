@@ -381,6 +381,17 @@ class Handler(BaseHTTPRequestHandler):
                     session.health_rules, session.detections = rules, detections
                     session.health_results, session.health_checked_at = [], None
                     return self.send(200, session.snapshot(), sid=sid)
+                elif path == "/api/health/config":
+                    # Arayüz düzenleyicisi aynı dosya doğrulamasını kullanır.
+                    if set(data) != {"checks", "detections"}:
+                        raise ValueError("checks ve detections listeleri gerekli.")
+                    if data == {"checks": [], "detections": []}:
+                        rules, detections = [], []
+                    else:
+                        rules, detections = read_config(json.dumps(data, ensure_ascii=False))
+                    session.health_rules, session.detections = rules, detections
+                    session.health_results, session.health_checked_at = [], None
+                    return self.send(200, session.snapshot(), sid=sid)
                 elif path == "/api/health/check":
                     if session.config is None:
                         raise ValueError("Önce Splunk'a bağlanın.")
