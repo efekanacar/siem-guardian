@@ -41,10 +41,10 @@ def state(done=False, **kwargs):
 
 
 def arrival(t, seconds=60, **overrides):
-    return dict(index=t.index, host=t.host, sourcetype=t.sourcetype,
-                matched_count="2", index_time_count="2", before_check_count="2",
-                last_seen_epoch=str(NOW.timestamp() - seconds),
-                latest_any_epoch=str(NOW.timestamp() - seconds), **overrides)
+    row = dict(index=t.index, host=t.host, sourcetype=t.sourcetype,
+               matched_count="2", last_seen_epoch=str(NOW.timestamp() - seconds))
+    row.update(overrides)
+    return row
 
 
 class MeasurementTests(unittest.TestCase):
@@ -127,7 +127,8 @@ class ValidationTests(unittest.TestCase):
         self.assertNotIn("lab", search)
         self.assertIn('search (index="demo_apps") earliest=0 latest=+10y', search)
         self.assertIn("eval arrival_epoch=_indextime", search)
-        self.assertIn("AS index_time_count", search)
+        self.assertIn("count AS matched_count max(arrival_epoch) AS last_seen_epoch", search)
+        self.assertEqual(search.count("max(arrival_epoch)"), 1)
         self.assertNotIn("max(_time)", search)
         self.assertIn(f"_index_earliest={int(START.timestamp())}", search)
         self.assertIn(f"_index_latest={int(NOW.timestamp())}", search)
@@ -196,7 +197,7 @@ class SplunkTests(unittest.TestCase):
         client.run_search = Mock(return_value={"results": []})
         result = client.fetch_latest(target(), START, NOW)
         self.assertIsInstance(result, NoData)
-        self.assertIn("index yetkisini", result.note)
+        self.assertIn("index yetkisi", result.note)
         client.snapshot_window = None
         client.run_search = Mock(side_effect=CheckError("Timeout."))
         reports = check_targets([target()], client.fetch_latest, NOW, 120)
@@ -204,7 +205,7 @@ class SplunkTests(unittest.TestCase):
         client.close()
 
     def test_missing_index_time_and_inconsistent_counts_are_errors(self):
-        for updates in [dict(index_time_count="0"), dict(matched_count="1"), dict(matched_count="nan")]:
+        for updates in [dict(last_seen_epoch=""), dict(matched_count="0"), dict(matched_count="nan")]:
             row = dict(arrival(target()), **updates)
             with self.subTest(row=row):
                 values = parse_results({"results": [row]}, NOW)
@@ -212,7 +213,7 @@ class SplunkTests(unittest.TestCase):
 
     def test_future_indextime_clock_skew_is_error(self):
         client = SplunkClient(config())
-        row = dict(arrival(target(), -600), before_check_count="0", last_seen_epoch="")
+        row = arrival(target(), -600)
         client.run_search = Mock(return_value={"results": [row]})
         with self.assertRaises(CheckError):
             client.fetch_latest(target(), START, NOW)
