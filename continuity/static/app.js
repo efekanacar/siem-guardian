@@ -143,7 +143,9 @@ function renderHealth() {
   }
   $("guardian-expected").textContent = resources.size;
   $("guardian-healthy").textContent = results.length ? [...resources.values()].filter((items) => items.every((status) => status === "OK")).length : "—";
-  $("guardian-problem").textContent = results.length ? [...resources.values()].filter((items) => items.some((status) => status && status !== "OK")).length : "—";
+  $("guardian-problem").textContent = results.length ? [...resources.values()].filter((items) => items.some((status) => ["ALERT", "NO_DATA"].includes(status))).length : "—";
+  $("guardian-unknown").textContent = results.length ? [...resources.values()].filter((items) =>
+    !items.some((status) => ["ALERT", "NO_DATA"].includes(status)) && !items.every((status) => status === "OK")).length : "—";
   $("health-count").textContent = rules.length;
   $("health-empty").hidden = !!rules.length;
   $("health-rules-wrap").hidden = !rules.length;
@@ -151,15 +153,15 @@ function renderHealth() {
   $("health-rules-body").replaceChildren();
   for (const rule of rules) {
     const row = document.createElement("tr");
-    [rule.name, rule.kind, `${rule.index} / ${rule.host} / ${rule.sourcetype}${rule.source ? " / " + rule.source : ""}`, `${rule.window_minutes} dk`].forEach((value) => textCell(row, String(value), "td"));
+    [rule.name, rule.kind, `${rule.index} / ${rule.host} / ${rule.sourcetype}${rule.source ? " / " + rule.source : ""}`, `${rule.window_minutes} dk · ${rule.availability === "intermittent" ? "aralıklı" : "sürekli"}`].forEach((value) => textCell(row, String(value), "td"));
     $("health-rules-body").append(row);
   }
   $("health-results-section").hidden = !results.length;
   $("health-checked-at").textContent = state?.health_checked_at ? `Ölçüm: ${state.health_checked_at}` : "";
   $("health-summary").replaceChildren();
-  for (const status of ["OK", "ALERT", "NO_DATA", "INSUFFICIENT_BASELINE", "ERROR"]) {
+  for (const status of ["OK", "ALERT", "NO_DATA", "QUIET", "INSUFFICIENT_BASELINE", "ERROR"]) {
     const count = results.filter((result) => result.status === status).length;
-    if (results.length) textCell($("health-summary"), `${status}: ${count}`, "span", "badge " + ({OK:"ok",ALERT:"error",NO_DATA:"no-data",INSUFFICIENT_BASELINE:"delayed",ERROR:"error"}[status]));
+    if (results.length) textCell($("health-summary"), `${status}: ${count}`, "span", "badge " + ({OK:"ok",ALERT:"error",NO_DATA:"no-data",QUIET:"neutral",INSUFFICIENT_BASELINE:"delayed",ERROR:"error"}[status]));
   }
   $("health-results-body").replaceChildren();
   for (const result of results) {
@@ -167,7 +169,7 @@ function renderHealth() {
     const cells = Array.from({length: 6}, () => row.appendChild(document.createElement("td")));
     textCell(cells[0], result.name, "strong"); textCell(cells[0], result.host, "small");
     textCell(cells[1], result.check_type);
-    textCell(cells[2], result.status, "span", "badge " + ({OK:"ok",ALERT:"error",NO_DATA:"no-data",INSUFFICIENT_BASELINE:"delayed",ERROR:"error"}[result.status] || "neutral"));
+    textCell(cells[2], result.status, "span", "badge " + ({OK:"ok",ALERT:"error",NO_DATA:"no-data",QUIET:"neutral",INSUFFICIENT_BASELINE:"delayed",ERROR:"error"}[result.status] || "neutral"));
     textCell(cells[3], result.observed || "—"); textCell(cells[4], result.threshold || "—");
     textCell(cells[5], result.details);
     if (result.search) {
