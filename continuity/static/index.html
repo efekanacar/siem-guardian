@@ -40,7 +40,8 @@
       <section class="guardian-overview" aria-label="Beklenen kaynak özeti">
         <article><span>Beklenen kaynak</span><strong id="guardian-expected">0</strong><small>Tanımlı index / host / sourcetype</small></article>
         <article><span>Sağlıklı</span><strong id="guardian-healthy">—</strong><small>Tüm kontrolleri OK</small></article>
-        <article><span>Problemli</span><strong id="guardian-problem">—</strong><small>Uyarı, eksik veri veya hata</small></article>
+        <article><span>Problemli</span><strong id="guardian-problem">—</strong><small>ALERT veya sürekli kaynakta NO_DATA</small></article>
+        <article><span>Belirsiz</span><strong id="guardian-unknown">—</strong><small>Aralıklı kaynak sessiz, veri az veya hata</small></article>
       </section>
       <div class="section-kicker">Kaynak sürekliliği özeti</div>
       <section class="summary-grid" aria-label="Kaynak sürekliliği özeti">
@@ -63,7 +64,7 @@
         <div id="health-empty" class="empty-results"><span class="empty-symbol" aria-hidden="true">◇</span><h3>Sağlık kurallarını yükleyin.</h3><p>Kaynak, Event ID, gerekli alan, zaman, hacim ve index yönlendirmesi için örnek JSON'u düzenleyin.</p></div>
         <div id="health-rules-wrap" class="table-scroll" hidden><table class="diagnostic-table"><thead><tr><th>Kontrol</th><th>Tür</th><th>Beklenen kaynak</th><th>Aralık</th></tr></thead><tbody id="health-rules-body"></tbody></table></div>
         <div id="health-results-section" hidden><div class="health-results-heading"><h3>Sağlık sonuçları</h3><span id="health-checked-at"></span><a id="health-export-report" class="button secondary" href="/api/health-report.csv">CSV raporu indir</a></div><div id="health-summary" class="health-summary"></div><div class="table-scroll"><table class="result-table health-result-table"><thead><tr><th>Kontrol / kaynak</th><th>Tür</th><th>Durum</th><th>Ölçülen</th><th>Beklenen</th><th>Açıklama ve SPL</th></tr></thead><tbody id="health-results-body"></tbody></table></div></div>
-        <div class="panel-footnote"><span aria-hidden="true">ⓘ</span> NO_DATA, kaynak durmuş demek değildir. INSUFFICIENT_BASELINE, karşılaştırma için veri az demektir; ERROR arama/işleme hatasıdır.</div>
+        <div class="panel-footnote"><span aria-hidden="true">ⓘ</span> QUIET: aralıklı kaynak bu aralıkta sessiz; kapalı olabilir. NO_DATA bile kaynağın durduğunu kanıtlamaz. INSUFFICIENT_BASELINE: veri az; ERROR: arama/işleme hatası.</div>
       </section>
       <section class="panel detection-panel" aria-labelledby="detection-title">
         <div class="panel-heading"><div><h2 id="detection-title">Detection Dependency Monitoring <span id="detection-count" class="counter">0</span></h2><p>Kritik tespitlerin ihtiyaç duyduğu logları izler; alternatif ve zorunlu kaynakları ayırt eder.</p></div><a id="detection-export" class="button secondary" href="/api/detection-report.csv" hidden>Detection CSV indir</a></div>
