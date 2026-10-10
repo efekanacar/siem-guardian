@@ -101,6 +101,9 @@ Kontrol aralığı `_index_earliest`/`_index_latest` ve kesin `_indextime` koşu
 uygulanır. Böylece tüm geçmişin eski bucket'ları gereksiz taranmaz. Pencereden
 daha eski gelişler aranmamış olur; `NO_DATA` için son geliş zamanı boş bırakılır.
 Hiç üçlü eşleşmiyorsa hedef alanlarını ve index yetkisini kontrol edin.
+NO_DATA açıklaması, aynı host/sourcetype'ın başka bir hedef indexte görüldüğünü
+veya aynı hosttan yalnız diğer logların geldiğini söyleyebilir. Makinenin açık
+olması tek başına bu kanalın Splunk'a ulaştığını kanıtlamaz.
 API boş/eksik satır döndürürken job'ın sonuç sayısı daha yüksekse ERROR verilir.
 
 **Arama ayrıntıları** bölümünü açarak Splunk ölçüm zamanını, pencereyi, gerçek
