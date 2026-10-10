@@ -34,9 +34,7 @@ TARGETS = [Target("Yeni", "linux", "host.invalid", "linux_secure", 30),
 
 def row(target, seconds=60, **overrides):
     data = dict(index=target.index, host=target.host, sourcetype=target.sourcetype,
-                matched_count="12", index_time_count="12", before_check_count="11",
-                last_seen_epoch=str(NOW.timestamp() - seconds),
-                latest_any_epoch=str(NOW.timestamp() + 2))
+                matched_count="12", last_seen_epoch=str(NOW.timestamp() - seconds))
     data.update(overrides)
     return data
 
@@ -115,14 +113,14 @@ class SplunkFlowTests(unittest.TestCase):
             self.assertEqual([r.status for r in reports], ["OK", "DELAYED", "NO_DATA", "NO_DATA"])
             self.assertEqual(reports[0].delay_minutes, 1)
             self.assertIn("150.0 dakika", reports[2].note)
-            self.assertIn("Kontrol penceresinde", reports[3].note)
+            self.assertIn("Bu hosttan", reports[3].note)
             self.assertEqual(len(adapter.jobs), 2)
             self.assertEqual(len(adapter.calls), 6)
             self.assertIn('(index="linux" OR index="windows") earliest=0 latest=+10y', adapter.searches[1])
             diagnostic = client.check_diagnostics
             self.assertEqual((diagnostic["returned_rows"], diagnostic["matched_targets"]), (3, 3))
             self.assertNotIn("private-token", json.dumps(diagnostic))
-            self.assertEqual(diagnostic["sources"][0]["latest_any_utc"], "2026-10-08T17:56:53Z")
+            self.assertEqual(diagnostic["sources"][0]["last_before_check_utc"], "2026-10-08T17:55:51Z")
 
     def test_nonzero_job_result_count_with_empty_api_body_is_error(self):
         # Eski istemci bu boş sonuçları NO_DATA olarak yorumluyordu.
@@ -158,8 +156,21 @@ class SplunkFlowTests(unittest.TestCase):
             self.assertEqual(client.check_diagnostics["matched_targets"], 0)
             self.assertEqual(client.check_diagnostics["returned_rows"], 2)
 
+    def test_missing_target_explains_wrong_index_and_missing_sourcetype(self):
+        same_host_and_type = row(TARGETS[1], index="linux")
+        with self.make_client(SplunkAdapter([same_host_and_type, row(TARGETS[0])])) as client:
+            client.prepare_check(TARGETS[:2], START, NOW)
+            missing = check_targets(TARGETS[1:2], client.fetch_latest, NOW, 120)[0]
+            self.assertEqual(missing.status, "NO_DATA")
+            self.assertIn("başka index'te görüldü: linux", missing.note)
+        with self.make_client(SplunkAdapter([row(TARGETS[0])])) as client:
+            client.prepare_check(TARGETS[:2], START, NOW)
+            missing = check_targets(TARGETS[1:2], client.fetch_latest, NOW, 120)[0]
+            self.assertEqual(missing.status, "NO_DATA")
+            self.assertIn("başka loglar geliyor", missing.note)
+
     def test_bad_time_on_one_source_does_not_hide_good_source(self):
-        actual = [row(TARGETS[0], index_time_count="0"), row(TARGETS[1], 1200)]
+        actual = [row(TARGETS[0], last_seen_epoch=""), row(TARGETS[1], 1200)]
         with self.make_client(SplunkAdapter(actual)) as client:
             client.prepare_check(TARGETS, START, NOW)
             reports = check_targets(TARGETS, client.fetch_latest, NOW, 120)
@@ -201,7 +212,7 @@ class SplunkFlowTests(unittest.TestCase):
         from contextlib import redirect_stdout, redirect_stderr
         from unittest.mock import patch
         adapter = SplunkAdapter([row(TARGETS[0]), row(TARGETS[1], 1200),
-                                 row(TARGETS[2], index_time_count="0")])
+                                 row(TARGETS[2], last_seen_epoch="")])
         with tempfile.TemporaryDirectory() as folder, self.make_client(adapter) as client:
             path = Path(folder) / "targets.csv"
             output = Path(folder) / "report.csv"
@@ -227,10 +238,10 @@ class SplunkFlowTests(unittest.TestCase):
             report = check_targets(TARGETS[:1], client.fetch_latest, NOW, 120)[0]
             self.assertEqual(report.status, "DELAYED")
             self.assertEqual(report.delay_minutes, 120)
-        only_after = row(TARGETS[0], before_check_count="0", last_seen_epoch="")
+        only_after = row(TARGETS[0], seconds=0)
         with self.make_client(SplunkAdapter([only_after])) as client:
             client.prepare_check(TARGETS, START, NOW)
-            self.assertEqual(check_targets(TARGETS[:1], client.fetch_latest, NOW, 120)[0].status, "NO_DATA")
+            self.assertEqual(check_targets(TARGETS[:1], client.fetch_latest, NOW, 120)[0].status, "ERROR")
 
     @staticmethod
     def make_client(adapter):
