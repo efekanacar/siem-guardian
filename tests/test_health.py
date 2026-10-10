@@ -76,7 +76,7 @@ class HealthTests(unittest.TestCase):
     def test_example_round_trip_and_fake_names(self):
         from pathlib import Path
         rules = read_rules(Path("checks.example.json").read_text(encoding="utf-8"))
-        self.assertEqual(len(rules), 7)
+        self.assertEqual(len(rules), 8)
         self.assertEqual({r.kind for r in rules}, {"presence", "event_id", "field", "timestamp", "volume", "route"})
         self.assertEqual(read_rules(json.dumps({"checks": [rule_dict(r) for r in rules]})), rules)
         self.assertTrue(all("example" in r.host for r in rules))
@@ -98,7 +98,7 @@ class HealthTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_search(BASE, datetime(2026, 10, 10))
         search = build_search(BASE, NOW)
-        self.assertIn("earliest=0 latest=253402300799", search)
+        self.assertIn("earliest=0 latest=+10y", search)
         self.assertIn(f"_index_earliest={int(NOW.timestamp())-3600}", search)
         self.assertIn(f"_index_latest={int(NOW.timestamp())}", search)
         self.assertIn("| eval arrival_epoch=_indextime", search)
@@ -116,6 +116,7 @@ class HealthTests(unittest.TestCase):
 
     def test_presence_no_data_and_exact_minimum(self):
         self.assertEqual(evaluate(BASE, {"total_count": "0"}, NOW).status, "NO_DATA")
+        self.assertEqual(evaluate(replace(BASE, availability="intermittent"), {"total_count": "0"}, NOW).status, "QUIET")
         rule = replace(BASE, min_events=3)
         row = {"total_count": "2", "last_seen_epoch": str(NOW.timestamp()-60)}
         self.assertEqual(evaluate(rule, row, NOW).status, "ALERT")
@@ -130,6 +131,9 @@ class HealthTests(unittest.TestCase):
                     event_id_field="EventID", event_id="1")
         self.assertEqual(evaluate(rule, {"total_count": 70, "matching_count": 0}, NOW).status, "ALERT")
         self.assertEqual(evaluate(rule, {"total_count": 0, "matching_count": 0}, NOW).status, "NO_DATA")
+        intermittent = replace(rule, availability="intermittent")
+        self.assertEqual(evaluate(intermittent, {"total_count": 0, "matching_count": 0}, NOW).status, "QUIET")
+        self.assertEqual(evaluate(intermittent, {"total_count": 70, "matching_count": 0}, NOW).status, "ALERT")
         self.assertEqual(evaluate(rule, {"total_count": 70, "matching_count": 1}, NOW).status, "OK")
 
     def test_windows_xml_event_id_auto_fallback(self):
@@ -180,6 +184,9 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(evaluate(rule, {"total_count": 121, "current_count": 21, "baseline_count": 100}, NOW).status, "OK")
         self.assertEqual(evaluate(rule, {"total_count": 20, "current_count": 20, "baseline_count": 0}, NOW).status, "INSUFFICIENT_BASELINE")
         self.assertEqual(evaluate(rule, {"total_count": 0, "current_count": 0, "baseline_count": 0}, NOW).status, "NO_DATA")
+        intermittent = replace(rule, availability="intermittent")
+        self.assertEqual(evaluate(intermittent, {"total_count": 100, "current_count": 0, "baseline_count": 100}, NOW).status, "QUIET")
+        self.assertEqual(evaluate(intermittent, {"total_count": 120, "current_count": 20, "baseline_count": 100}, NOW).status, "ALERT")
         self.assertIn(f"_index_earliest={int(NOW.timestamp())-7200}", build_search(rule, NOW))
 
     def test_wrong_index_and_no_visible_data(self):
@@ -188,6 +195,7 @@ class HealthTests(unittest.TestCase):
         self.assertEqual(evaluate(rule, {"total_count": 5, "expected_count": 4, "observed_indexes": ["expected_idx", "other_idx"]}, NOW).status, "ALERT")
         self.assertEqual(evaluate(rule, {"total_count": 5, "expected_count": 5, "observed_indexes": ["expected_idx"]}, NOW).status, "OK")
         self.assertEqual(evaluate(rule, {"total_count": 0, "expected_count": 0}, NOW).status, "NO_DATA")
+        self.assertEqual(evaluate(replace(rule, availability="intermittent"), {"total_count": 0, "expected_count": 0}, NOW).status, "QUIET")
         self.assertIn("search index=*", build_search(rule, NOW))
 
     def test_invalid_counters_are_errors_not_no_data(self):
@@ -253,6 +261,25 @@ class HealthTests(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("NO_DATA", output.getvalue())
             self.assertIn("NO_DATA", report.read_text(encoding="utf-8-sig"))
+
+    def test_intermittent_quiet_cli_is_not_an_alert(self):
+        class CLIClient:
+            def __init__(self, config): self.last_job = {}
+            def get_server_time(self): return NOW
+            def run_search(self, search): return {"results": [{"total_count": 0}]}
+            def close(self): pass
+        with tempfile.TemporaryDirectory() as temp:
+            checks = Path(temp) / "checks.json"
+            report = Path(temp) / "health.csv"
+            checks.write_text(json.dumps({"checks": [rule_dict(replace(BASE, availability="intermittent"))]}), encoding="utf-8")
+            output = StringIO()
+            with patch.object(healthcheck, "SplunkClient", CLIClient), \
+                 patch.object(healthcheck.Config, "from_env", return_value=Config("https://splunk.example.invalid:8089", "token", "", "", True, 5, 30, .01)), \
+                 redirect_stdout(output):
+                code = healthcheck.main(["--checks", str(checks), "--env-file", str(Path(temp) / "absent.env"), "--output", str(report)])
+            self.assertEqual(code, 0)
+            self.assertIn("QUIET", output.getvalue())
+            self.assertIn("QUIET", report.read_text(encoding="utf-8-sig"))
 
 
 if __name__ == "__main__":
