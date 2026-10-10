@@ -211,7 +211,7 @@ function renderDiagnostics() {
   $("check-query").textContent = diagnostic.search;
   for (const source of diagnostic.sources) {
     const row = document.createElement("tr");
-    [source.index, source.host, source.sourcetype, source.last_before_check_utc || source.error || "—", source.latest_any_utc || "—", source.matched_events ?? "—"].forEach((value) => textCell(row, String(value), "td"));
+    [source.index, source.host, source.sourcetype, source.last_before_check_utc || source.error || "—", source.matched_events ?? "—"].forEach((value) => textCell(row, String(value), "td"));
     $("diagnostic-body").append(row);
   }
 }
