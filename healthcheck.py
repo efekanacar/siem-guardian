@@ -52,7 +52,7 @@ def main(argv=None) -> int:
             row = result.row()
             print(" | ".join(row[field] for field in RESULT_FIELDS))
         counts = Counter(result.status for result in results)
-        print("Durumlar: " + ", ".join(f"{status}={counts[status]}" for status in ("OK", "ALERT", "NO_DATA", "INSUFFICIENT_BASELINE", "ERROR")))
+        print("Durumlar: " + ", ".join(f"{status}={counts[status]}" for status in ("OK", "ALERT", "NO_DATA", "QUIET", "INSUFFICIENT_BASELINE", "ERROR")))
         print(f"CSV raporu: {output}")
         for detection in detection_results:
             print(f"Detection {detection['technique']} / {detection['name']}: {detection['status']}"
@@ -62,8 +62,8 @@ def main(argv=None) -> int:
         if args.notify:
             delivered = send_issues(issue_payload(results, detection_results))
             print(f"Gönderilen bildirim kanalı: {delivered}")
-        return 2 if counts["ERROR"] else (1 if counts["ALERT"] or counts["NO_DATA"] or counts["INSUFFICIENT_BASELINE"] or
-                                          any(value["status"] != "COVERED" for value in detection_results) else 0)
+        return 2 if counts["ERROR"] else (1 if counts["ALERT"] or counts["NO_DATA"] or
+                                          any(value["status"] == "IMPAIRED" for value in detection_results) else 0)
     except (CheckError, ValueError) as exc:
         print(f"Kontrol hatası: {exc}", file=sys.stderr)
         return 2
