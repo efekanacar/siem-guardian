@@ -28,7 +28,9 @@ Makineleriniz bazen kapalıysa kaynağı **aralıklı** seçebilirsiniz. Veri g�
 
 ## Splunk alert bazlı analiz
 
-Arayüzdeki **Alertleri analiz et** düğmesi, erişim hesabının görebildiği etkin alertleri `/servicesNS/-/-/saved/searches` REST endpoint'inden salt okunur olarak getirir. Her alertin SPL'i içindeki açık `index`, `host`, `sourcetype`, `source` ve `EventCode`/`EventID` eşitlikleri çıkarılır. Araç bu bağımlılıkları seçilen kontrol aralığında `_indextime` üzerinden ayrı ayrı sorgular.
+Arayüz, önce `/services/authentication/current-context` ile giriş yapan Splunk kullanıcısını belirler. Ardından yalnız bu kullanıcıya ait, etkin ve zamanlanmış alertleri kullanıcının `/servicesNS/{kullanıcı}/-/saved/searches` ad alanından salt okunur olarak getirir. Başka kullanıcıların, Splunk'ın veya kurulu uygulamaların alertleri listeye eklenmez.
+
+Her alertin SPL'i içindeki açık `index`, `host`, `sourcetype`, `source` ve `EventCode`/`EventID` eşitlikleri çıkarılır. Araç bu bağımlılıkları seçilen kontrol aralığında `_indextime` üzerinden ayrı ayrı sorgular. Arayüzün ana görünümü yalnız alert sayısını ve bu alertlerin izlediği logların sağlık durumunu gösterir.
 
 Alert sonucu `COVERED` ise çıkarılan bağımlılıkların tamamında veri vardır. `DEGRADED` bazı bağımlılıkların eksik veya doğrulanamaz olduğunu, `BLIND` açık bağımlılıkların hiçbirinde veri görülmediğini, `UNKNOWN` SPL'den güvenilir kaynak çıkarılamadığını ve `ERROR` bir sorgunun tamamlanamadığını gösterir. Sonuçlar **Alert CSV indir** ile dışarı alınabilir.
 
@@ -60,14 +62,15 @@ Ardından **kendi bilgisayarınızda** `http://127.0.0.1:8787` açın. [Ayrınt�
 
 ## Arayüzde kullanım
 
-1. Solda Splunk **Management API** adresini (`https://SUNUCU:8089`) ve kullanıcı/parola **veya** Bearer token girip **Bağlan** seçin. `:8000` Splunk Web portudur; API adresi olarak kullanmayın.
-2. **Alertleri analiz et** ile etkin Splunk alertlerini ve SPL'den çıkarılan log bağımlılıklarını kontrol edin. Sonuç satırından alert SPL'ini ve araç tarafından çalıştırılan sağlık sorgularını açabilirsiniz.
-3. **Splunk'tan getir** ile görünen `index`, `host`, `sourcetype` ve `source` değerlerini listeleyin. Henüz log göndermemiş ama beklediğiniz kaynakları **Hedef ekle** veya hedef CSV ile ayrıca girin. Keşif, beklenen envanterin yerine geçmez.
-4. Genel geliş kontrolü için hedef eşiğini ve kontrol aralığını belirleyip sayfanın altındaki **Kontrolü çalıştır** düğmesine basın. Aralık bütün hedef eşiklerinden **uzun** olmalıdır. `OK`, `DELAYED`, `NO_DATA`, `ERROR` sonuçlarını ve CSV raporunu alın.
-5. **İzlenecek kaynaklardan kurallar oluştur** ile her hedefe bir log varlığı kontrolü ekleyin. **Kontrol ekle** formuyla Event ID, alan, zaman, hacim veya yönlendirme kuralı ekleyin. `source` yalnız belirli dosya/kanalı izlemek istiyorsanız doldurulur. Aynı Splunk kaynak satırının alanlarını kullanın; wildcard desteklenmez.
-6. **Detection ekle** formunda bir tespitin ihtiyaç duyduğu sağlık kontrollerini seçin. **Alternatif: biri yeterli** (`any`) veya **Zorunlu: hepsi gerekli** (`all`) seçimini yapın ve etki açıklamasını yazın.
-7. **Sağlık kontrolünü çalıştır** düğmesine basın. Üstteki sağlık kartları ve Detection Dependency Monitoring paneli bu çalışmanın sonucuyla dolar. Her satırdaki **SPL ve iş bilgisi** ayrıntısını açabilir, CSV raporlarını indirebilirsiniz.
-8. **Kuralları indir** (`checks.json`) ve **Hedef CSV indir** (`targets.csv`) ile yapılandırmanızı yedekleyin. Arayüz hedef ve kuralları aynı tarayıcının yerel depolamasında da tutar; parola/token burada tutulmaz. Gerçek envanter dosyalarını GitHub'a eklemeyin.
+1. Solda Splunk **Management API** adresini (`https://SUNUCU:8089`) ve alertleri oluşturan kullanıcıya ait kullanıcı/parola **veya** Bearer token bilgisini girip **Bağlan** seçin. `:8000` Splunk Web portudur; API adresi olarak kullanmayın.
+2. Kontrol aralığını dakika olarak seçin. Varsayılan `1440`, son 24 saati ifade eder. Sistemler daha seyrek çalışıyorsa aralığı büyütebilirsiniz.
+3. **Logları kontrol et** düğmesine basın. Araç yalnız giriş yapan kullanıcıya ait etkin ve zamanlanmış alertleri getirir.
+4. Üst kartlarda alert sayısını, sağlıklı alertleri, log kaybı riski bulunan alertleri ve incelenmesi gereken SPL'leri görün.
+5. Her alert satırında izlenen `index`, `host`, `sourcetype`, `source` ve Event ID değerlerini; olay sayısını ve son log geliş zamanını inceleyin.
+6. **Alert SPL ve kontrol sorguları** ayrıntısını açarak özgün alert sorgusunu ve aracın çalıştırdığı salt okunur sağlık sorgusunu karşılaştırın.
+7. **Alert CSV indir** ile sonuçları dışarı alın.
+
+Kullanıcı adıyla giriş yapıyorsanız alertleri hangi Splunk kullanıcısı oluşturduysa aynı kullanıcıyla bağlanın. Token kullanıyorsanız token sahibinin alertleri değerlendirilir.
 
 **Belirli log örneği:** Windows Security kaynağı için `Log varlığı` kontrolünde gerçek `index`, `host`, `sourcetype` ve isterseniz `source=WinEventLog:Security` girin. Ardından aynı kaynak için `Event ID` kontrolü ekleyip `event_id_field=auto`, `event_id=4688` seçin. Başka Security olayları gelirken 4688 gelmiyorsa sonuç `ALERT` olur. [Adım adım açıklama ve JSON örneği](docs/ARAYUZ_KULLANIM.md#json-ile-tanımlamak-isterseniz) rehberde bulunur.
 
