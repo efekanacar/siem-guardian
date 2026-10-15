@@ -35,30 +35,30 @@
       <div class="sidebar-footer"><span class="mini-icon" aria-hidden="true">◷</span><p>Son geliş zamanı <strong>_indextime</strong> üzerinden ölçülür. Tüm zamanlar UTC'dir.</p></div>
     </aside>
     <main>
-      <div class="page-heading"><div><span class="eyebrow">SIEM GUARDIAN / YEREL DASHBOARD</span><h1>Log kapsamını ve tespit gücünü izle.</h1><p>Beklenen kaynakları, veri kalitesini ve detection bağımlılıklarını tek yerden kontrol et.</p></div><div class="session-actions"><span id="connection-status" class="badge neutral">Bağlantı bekleniyor</span><button id="disconnect" class="text-button" disabled>Bağlantıyı kes</button></div></div>
+      <div class="page-heading"><div><span class="eyebrow">SIEM GUARDIAN / YEREL DASHBOARD</span><h1>Alertlerinin ihtiyaç duyduğu logları izle.</h1><p>Splunk'ta sizin oluşturduğunuz alertleri bulur ve izledikleri logların gelip gelmediğini kontrol eder.</p></div><div class="session-actions"><span id="connection-status" class="badge neutral">Bağlantı bekleniyor</span><button id="disconnect" class="text-button" disabled>Bağlantıyı kes</button></div></div>
       <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
-      <section class="guardian-overview" aria-label="Beklenen kaynak özeti">
-        <article><span>Beklenen kaynak</span><strong id="guardian-expected">0</strong><small>Sağlık kuralı tanımlı kaynak</small></article>
-        <article><span>Sağlıklı</span><strong id="guardian-healthy">—</strong><small>Tüm kontrolleri OK</small></article>
-        <article><span>Problemli</span><strong id="guardian-problem">—</strong><small>ALERT veya sürekli kaynakta NO_DATA</small></article>
-        <article><span>Belirsiz</span><strong id="guardian-unknown">—</strong><small>Aralıklı kaynak sessiz, veri az veya hata</small></article>
+      <section class="guardian-overview" aria-label="Alert log sağlığı özeti">
+        <article><span>Benim alertlerim</span><strong id="guardian-expected">0</strong><small>Etkin ve zamanlanmış alert</small></article>
+        <article><span>Sağlıklı</span><strong id="guardian-healthy">—</strong><small>İzlediği loglar geliyor</small></article>
+        <article><span>Riskli</span><strong id="guardian-problem">—</strong><small>Logların bir bölümü veya tamamı yok</small></article>
+        <article><span>İncelenmeli</span><strong id="guardian-unknown">—</strong><small>Kaynak çözülemedi veya sorgu hatası</small></article>
       </section>
-      <div class="section-kicker">Kaynak sürekliliği özeti</div>
-      <section class="summary-grid" aria-label="Kaynak sürekliliği özeti">
+      <div class="section-kicker" hidden>Kaynak sürekliliği özeti</div>
+      <section class="summary-grid" aria-label="Kaynak sürekliliği özeti" hidden>
         <article class="summary-card"><div><span class="status-dot ok"></span><span>Akış normal</span><span class="summary-code">OK</span></div><strong id="count-OK">—</strong><p>Geliş süresi eşik içinde</p></article>
         <article class="summary-card"><div><span class="status-dot delayed"></span><span>Geciken</span><span class="summary-code">DELAYED</span></div><strong id="count-DELAYED">—</strong><p>Beklenen süreyi aşmış</p></article>
         <article class="summary-card"><div><span class="status-dot no-data"></span><span>Veri görünmedi</span><span class="summary-code">NO_DATA</span></div><strong id="count-NO_DATA">—</strong><p>Kontrol aralığında veri yok</p></article>
         <article class="summary-card"><div><span class="status-dot error"></span><span>Kontrol hatası</span><span class="summary-code">ERROR</span></div><strong id="count-ERROR">—</strong><p>Erişim veya arama hatası</p></article>
       </section>
       <section class="panel alert-panel" aria-labelledby="alert-title">
-        <div class="panel-heading"><div><h2 id="alert-title">Splunk Alert Coverage <span id="alert-count" class="counter">0</span></h2><p>Etkin Splunk alertlerini getirir; SPL içinde açıkça tanımlanan log kaynağı ve olay türü bağımlılıklarını kontrol eder.</p></div><button id="alert-analyze" class="button primary" disabled>▷ Alertleri analiz et</button></div>
+        <div class="panel-heading"><div><h2 id="alert-title">Alert log sağlığı <span id="alert-count" class="counter">0</span></h2><p>Yalnız giriş yapan Splunk kullanıcısının oluşturduğu etkin alertleri ve bu alertlerin açıkça izlediği logları kontrol eder.</p></div><div class="alert-actions"><label>Kontrol aralığı<input id="alert-window" type="number" min="1" max="525600" step="1" value="1440"><span>dakika</span></label><button id="alert-analyze" class="button primary" disabled>▷ Logları kontrol et</button></div></div>
         <div class="health-results-heading"><span id="alert-checked-at">Bağlandıktan sonra analizi başlatın.</span><a id="alert-export" class="button secondary" href="/api/alert-report.csv" hidden>Alert CSV indir</a></div>
         <div id="alert-summary" class="health-summary"></div>
-        <div id="alert-empty" class="empty-results"><span class="empty-symbol" aria-hidden="true">⌁</span><h3>Henüz alert analizi yapılmadı.</h3><p>Splunk'a bağlanın ve Alertleri analiz et düğmesine basın.</p></div>
-        <div id="alert-wrap" class="table-scroll" hidden><table class="result-table alert-result-table"><thead><tr><th>Alert / uygulama</th><th>Kapsam</th><th>İzlenen log bağımlılıkları</th><th>Analiz</th></tr></thead><tbody id="alert-body"></tbody></table></div>
-        <p class="panel-note">Makro, lookup veya veri modeli içinde gizli kaynaklar otomatik tahmin edilmez; bu alertler manuel eşleme gerektirir.</p>
+        <div id="alert-empty" class="empty-results"><span class="empty-symbol" aria-hidden="true">⌁</span><h3>Henüz log kontrolü yapılmadı.</h3><p>Splunk'a bağlanın ve Logları kontrol et düğmesine basın.</p></div>
+        <div id="alert-wrap" class="table-scroll" hidden><table class="result-table alert-result-table"><thead><tr><th>Alert</th><th>Sağlık</th><th>İzlediği loglar</th><th>Sonuç</th></tr></thead><tbody id="alert-body"></tbody></table></div>
+        <p class="panel-note">SPL içinde açıkça yazılan index, host, sourcetype, source ve Event ID değerleri kontrol edilir. Makro, lookup veya veri modeli içindeki kaynaklar tahmin edilmez ve incelenmeli olarak gösterilir.</p>
       </section>
-      <section class="panel targets-panel">
+      <section class="panel targets-panel" hidden>
         <div class="panel-heading"><div><h2>İzlenecek kaynaklar <span id="target-count" class="counter">0</span></h2><p>Host ve source bilgilerini getir; izlenecek hedefleri düzenle.</p></div><button id="discover" class="button secondary" disabled><span aria-hidden="true">↙</span> Splunk'tan getir</button></div>
         <div class="target-toolbar"><div class="toolbar-left"><label class="button secondary upload-button" for="csv-file"><span aria-hidden="true">↑</span> CSV yükle</label><input id="csv-file" type="file" accept=".csv,text/csv" hidden><button id="export-targets" class="text-button" disabled>Hedef CSV indir</button></div><button id="add-target" class="button secondary"><span aria-hidden="true">＋</span> Hedef ekle</button></div>
         <div id="targets-empty" class="empty-targets"><span class="empty-symbol" aria-hidden="true">≡</span><h3>Hedef listen henüz boş.</h3><p>Splunk'tan kaynakları getir, targets.csv dosyanı yükle<br>veya ilk hedefini elle ekle.</p></div>
@@ -66,7 +66,7 @@
         <div id="targets-wrap" class="table-scroll" hidden><table class="target-table"><thead><tr><th>Hedef adı</th><th>Index</th><th>Host</th><th>Sourcetype</th><th>Source</th><th>Eşik / dk</th><th><span class="sr-only">Sil</span></th></tr></thead><tbody id="target-body"></tbody></table></div>
         <div class="panel-footnote"><span aria-hidden="true">ⓘ</span> Source, keşifte görülen dosya veya kanal bilgisidir. Kontrol index + host + sourcetype ile yapılır; mevcut hedefler korunur.</div>
       </section>
-      <section class="panel health-panel" aria-labelledby="health-title">
+      <section class="panel health-panel" aria-labelledby="health-title" hidden>
         <div class="panel-heading"><div><h2 id="health-title">Sağlık ve kapsama kontrolleri <span id="health-count" class="counter">0</span></h2><p>Kaynak, olay türü, alan, zaman, hacim ve index yönlendirmesini arayüzden tanımla.</p></div><a class="button secondary" href="/api/health-example.json">Örnek JSON indir</a></div>
         <div class="target-toolbar health-toolbar"><div class="toolbar-left"><label class="button secondary upload-button" for="health-file">↑ Kontrol JSON / CSV yükle</label><input id="health-file" type="file" accept=".json,.csv,application/json,text/csv" hidden><a id="health-export-rules" class="text-button" href="/api/health-checks.json" hidden>Kuralları indir</a></div><button id="health-run" class="button primary" disabled>▷ Sağlık kontrolünü çalıştır</button></div>
         <div class="editor-actions"><button id="rules-from-targets" class="button secondary" type="button">İzlenecek kaynaklardan kurallar oluştur</button><button id="rule-new" class="button secondary" type="button">＋ Kontrol ekle</button><span>İlk adım: Splunk'tan kaynakları getir, ardından buradan varlık kontrolleri oluştur.</span></div>
@@ -86,7 +86,7 @@
         <div id="health-results-section" hidden><div class="health-results-heading"><h3>Sağlık sonuçları</h3><span id="health-checked-at"></span><a id="health-export-report" class="button secondary" href="/api/health-report.csv">CSV raporu indir</a></div><div id="health-summary" class="health-summary"></div><div class="table-scroll"><table class="result-table health-result-table"><thead><tr><th>Kontrol / kaynak</th><th>Tür</th><th>Durum</th><th>Ölçülen</th><th>Beklenen</th><th>Açıklama ve SPL</th></tr></thead><tbody id="health-results-body"></tbody></table></div></div>
         <div class="panel-footnote"><span aria-hidden="true">ⓘ</span> QUIET: aralıklı kaynak bu aralıkta sessiz; kapalı olabilir. NO_DATA bile kaynağın durduğunu kanıtlamaz. INSUFFICIENT_BASELINE: veri az; ERROR: arama/işleme hatası.</div>
       </section>
-      <section class="panel detection-panel" aria-labelledby="detection-title">
+      <section class="panel detection-panel" aria-labelledby="detection-title" hidden>
         <div class="panel-heading"><div><h2 id="detection-title">Detection Dependency Monitoring <span id="detection-count" class="counter">0</span></h2><p>Kritik tespitlerin ihtiyaç duyduğu logları izler; alternatif ve zorunlu kaynakları ayırt eder.</p></div><a id="detection-export" class="button secondary" href="/api/detection-report.csv" hidden>Detection CSV indir</a></div>
         <div class="editor-actions"><button id="detection-new" class="button secondary" type="button">＋ Detection ekle</button><span>Önce bağlı olacağı sağlık kontrollerini tanımla.</span></div>
         <form id="detection-form" class="editor-form" hidden><h3 id="detection-form-title">Detection ekle</h3><div class="form-grid"><label>Detection adı<input name="name" required placeholder="PowerShell tespiti"></label><label>MITRE tekniği<input name="technique" required placeholder="T1059.001"></label><label>Bağımlılık biçimi<select name="mode"><option value="any">Alternatif: biri yeterli</option><option value="all">Zorunlu: hepsi gerekli</option></select></label><label>Etki açıklaması<input name="impact" required placeholder="PowerShell tespit kabiliyeti etkilenmiş olabilir."></label></div><fieldset><legend>Gerekli sağlık kontrolleri</legend><div id="detection-check-options" class="check-options"></div></fieldset><div class="editor-buttons"><button class="button primary" type="submit">Detection kaydet</button><button id="detection-cancel" class="button secondary" type="button">Vazgeç</button></div></form>
@@ -94,8 +94,8 @@
         <div id="detection-wrap" class="table-scroll" hidden><table class="result-table"><thead><tr><th>Detection / teknik</th><th>Durum</th><th>Gerekli kontroller</th><th>Etkisi</th></tr></thead><tbody id="detection-body"></tbody></table></div>
         <div class="panel-footnote">any: en az bir sağlıklı kaynak yeterli · all: tüm kaynaklar sağlıklı olmalı · UNKNOWN: karar için güvenilir sonuç yok.</div>
       </section>
-      <section class="control-bar"><div><label for="window">Kontrol aralığı</label><div class="window-field"><input id="window" type="number" min="1" max="525600" step="1" value="120"><span>dakika</span></div></div><p>Bütün hedef eşiklerinden<br>daha uzun bir aralık seç.</p><div class="control-action"><span id="progress-label" aria-live="polite">Manuel kontrol · UTC</span><button id="run" class="button primary" disabled><span class="play-icon" aria-hidden="true">▷</span> Kontrolü çalıştır</button></div></section>
-      <section class="panel results-panel">
+      <section class="control-bar" hidden><div><label for="window">Kontrol aralığı</label><div class="window-field"><input id="window" type="number" min="1" max="525600" step="1" value="1440"><span>dakika</span></div></div><p>Bütün hedef eşiklerinden<br>daha uzun bir aralık seç.</p><div class="control-action"><span id="progress-label" aria-live="polite">Manuel kontrol · UTC</span><button id="run" class="button primary" disabled><span class="play-icon" aria-hidden="true">▷</span> Kontrolü çalıştır</button></div></section>
+      <section class="panel results-panel" hidden>
         <div class="panel-heading"><div><h2>Kontrol sonuçları</h2><p id="checked-at">İlk kontrolünden sonra sonuçlar burada görünecek.</p></div><button id="export-report" class="button secondary" disabled><span aria-hidden="true">↓</span> Raporu indir</button></div>
         <details id="check-details" class="check-details" hidden>
           <summary>Arama ayrıntıları</summary>
