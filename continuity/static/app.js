@@ -37,6 +37,7 @@ function buttonStates() {
   $("export-report").disabled = busy || !reports.length || dirty;
   $("export-diagnostics").disabled = busy || !state?.diagnostics?.search || dirty;
   $("health-run").disabled = busy || !connected || !state?.health_checks?.length;
+  $("alert-analyze").disabled = busy || !connected;
   $("health-file").disabled = busy;
   ["rules-from-targets", "rule-new", "detection-new"].forEach((id) => $(id).disabled = busy);
   $("window").disabled = busy;
@@ -45,7 +46,7 @@ function buttonStates() {
   const kind = state?.job?.kind;
   $("connect").firstElementChild.textContent = busy && kind === "connect" ? "Bağlanıyor…" : "Bağlan";
   $("run").lastChild.textContent = busy && kind === "check" ? " Kontrol ediliyor…" : " Kontrolü çalıştır";
-  $("progress-label").textContent = busy ? (kind === "check" ? `${state.job.completed} / ${state.job.total} hedef kontrol edildi` : kind === "health" ? `${state.job.completed} / ${state.job.total} sağlık kontrolü tamamlandı` : kind === "connect" ? "Bağlantı doğrulanıyor…" : "Kaynaklar aranıyor…") : "Manuel kontrol · UTC";
+  $("progress-label").textContent = busy ? (kind === "check" ? `${state.job.completed} / ${state.job.total} hedef kontrol edildi` : kind === "health" ? `${state.job.completed} / ${state.job.total} sağlık kontrolü tamamlandı` : kind === "alerts" ? `${state.job.completed} / ${state.job.total} alert bağımlılığı kontrol edildi` : kind === "connect" ? "Bağlantı doğrulanıyor…" : "Kaynaklar aranıyor…") : "Manuel kontrol · UTC";
 }
 function renderConnection() {
   const badge = $("connection-status");
@@ -140,7 +141,49 @@ function applyState(next, updateTargets = true) {
   state = next; busy = next.job?.status === "RUNNING";
   if (updateTargets) { targets = next.targets.map((t) => ({...t})); $("window").value = next.window; dirty = false; renderTargets(); }
   reports = next.reports;
-  renderConnection(); renderReports(); renderDiagnostics(); renderHealth(); buttonStates();
+  renderConnection(); renderReports(); renderDiagnostics(); renderHealth(); renderAlerts(); buttonStates();
+}
+function renderAlerts() {
+  const results = state?.alert_results || [];
+  $("alert-count").textContent = results.length;
+  $("alert-checked-at").textContent = state?.alert_checked_at ? `Ölçüm: ${state.alert_checked_at} · ${state.window} dakikalık log penceresi` : "Bağlandıktan sonra analizi başlatın.";
+  $("alert-empty").hidden = !!results.length;
+  if (!results.length && state?.alert_checked_at) {
+    $("alert-empty").querySelector("h3").textContent = "Erişilebilir etkin Splunk alerti bulunamadı.";
+    $("alert-empty").querySelector("p").textContent = "Hesabın saved search yetkisini ve alertlerin disabled / alert_type alanlarını kontrol edin.";
+  }
+  $("alert-wrap").hidden = !results.length;
+  $("alert-export").hidden = !results.length;
+  $("alert-summary").replaceChildren();
+  for (const status of ["COVERED", "DEGRADED", "BLIND", "UNKNOWN", "ERROR"]) {
+    const count = results.filter((result) => result.status === status).length;
+    if (results.length) textCell($("alert-summary"), `${status}: ${count}`, "span", "badge " + ({COVERED:"ok",DEGRADED:"delayed",BLIND:"error",UNKNOWN:"neutral",ERROR:"error"}[status]));
+  }
+  $("alert-body").replaceChildren();
+  for (const result of results) {
+    const row = document.createElement("tr");
+    const cells = Array.from({length: 4}, () => row.appendChild(document.createElement("td")));
+    textCell(cells[0], result.name, "strong");
+    textCell(cells[0], `${result.app} · ${result.owner}${result.cron ? " · " + result.cron : ""}`, "small");
+    textCell(cells[1], result.status, "span", "badge " + ({COVERED:"ok",DEGRADED:"delayed",BLIND:"error",UNKNOWN:"neutral",ERROR:"error"}[result.status] || "neutral"));
+    if (!result.dependencies.length) textCell(cells[2], "Açık kaynak seçicisi bulunamadı.", "span", "data-detail");
+    for (const dependency of result.dependencies) {
+      const item = textCell(cells[2], "", "div", "dependency-line");
+      textCell(item, dependency.label, "strong");
+      const statusText = `${dependency.status}${dependency.event_count == null ? "" : " · " + dependency.event_count + " olay"}${dependency.last_seen_utc ? " · son " + dependency.last_seen_utc : ""}`;
+      textCell(item, statusText, "small", dependency.status === "OK" ? "" : "error-detail");
+    }
+    textCell(cells[3], result.details);
+    const details = document.createElement("details"); textCell(details, "Alert SPL ve kontrol sorguları", "summary");
+    textCell(details, result.spl, "pre");
+    for (const dependency of result.dependencies) {
+      textCell(details, dependency.label, "strong");
+      textCell(details, dependency.search, "pre");
+      if (dependency.details) textCell(details, dependency.details, "small");
+    }
+    cells[3].append(details);
+    $("alert-body").append(row);
+  }
 }
 function renderHealth() {
   const rules = state?.health_checks || [], results = state?.health_results || [];
@@ -296,7 +339,7 @@ async function poll() {
     if (state.job?.status === "ERROR") {notice(state.job.error, "error"); if (state.job.kind === "check" && state.diagnostics?.search) $("check-details").open = true;}
     else if (state.job?.status === "DONE") {
       const kind = state.job.kind;
-      const message = kind === "connect" ? "Splunk bağlantısı doğrulandı. Hedeflerini getirebilir veya CSV yükleyebilirsin." : kind === "discover" ? targets.length ? `${targets.length} hedef hazır. Host ve source bilgilerini incele, eşikleri düzenle ve kontrolü başlat.` : "Görünür indexlerde kaynak bulunamadı. Hesabın index yetkilerini kontrol et veya CSV yükle." : kind === "health" ? "Sağlık kontrolleri tamamlandı. Sonuçları ve SPL ayrıntılarını incele." : "Kontrol tamamlandı. Sonuçları inceleyebilir ve raporu indirebilirsin.";
+      const message = kind === "connect" ? "Splunk bağlantısı doğrulandı. Hedeflerini veya alert kapsamını kontrol edebilirsin." : kind === "discover" ? targets.length ? `${targets.length} hedef hazır. Host ve source bilgilerini incele, eşikleri düzenle ve kontrolü başlat.` : "Görünür indexlerde kaynak bulunamadı. Hesabın index yetkilerini kontrol et veya CSV yükle." : kind === "health" ? "Sağlık kontrolleri tamamlandı. Sonuçları ve SPL ayrıntılarını incele." : kind === "alerts" ? `${state.alert_results?.length || 0} etkin alert analiz edildi. Log bağımlılıklarını ve kapsam durumlarını incele.` : "Kontrol tamamlandı. Sonuçları inceleyebilir ve raporu indirebilirsin.";
       const allNoData = kind === "check" && reports.length && reports.every((r) => r.status === "NO_DATA");
       const healthErrors = kind === "health" && state.health_results?.some((r) => r.status === "ERROR");
       const healthAlerts = kind === "health" && state.health_results?.some((r) => r.status !== "OK");
@@ -357,6 +400,7 @@ $("health-file").addEventListener("change", async (event) => {
   catch (error) {notice(error.message, "error");} finally {event.target.value = "";}
 });
 $("health-run").addEventListener("click", () => action("/api/health/check", {}, true));
+$("alert-analyze").addEventListener("click", () => action("/api/alerts/analyze", {window: $("window").value}, true));
 $("rules-from-targets").addEventListener("click", async () => {
   if (!targets.length) return notice("Önce Splunk'tan kaynakları getir veya hedef CSV yükle.", "info");
   const checks = [...state.health_checks];
@@ -425,6 +469,7 @@ $("export-targets").addEventListener("click", async () => {
 });
 $("export-report").addEventListener("click", async () => {try {await download("/api/report.csv", "continuity-report.csv");} catch (error) {notice(error.message, "error");}});
 $("export-diagnostics").addEventListener("click", async () => {try {await download("/api/diagnostics.json", "search-diagnostics.json");} catch (error) {notice(error.message, "error");}});
+$("alert-export").addEventListener("click", async (event) => {event.preventDefault(); try {await download("/api/alert-report.csv", "splunk-alert-coverage.csv");} catch (error) {notice(error.message, "error");}});
 document.querySelectorAll("[data-filter]").forEach((button) => button.addEventListener("click", () => {
   filter = button.dataset.filter; document.querySelectorAll("[data-filter]").forEach((item) => {item.classList.toggle("selected", item === button); item.setAttribute("aria-pressed", String(item === button));}); renderReports();
 }));
