@@ -50,6 +50,14 @@
         <article class="summary-card"><div><span class="status-dot no-data"></span><span>Veri görünmedi</span><span class="summary-code">NO_DATA</span></div><strong id="count-NO_DATA">—</strong><p>Kontrol aralığında veri yok</p></article>
         <article class="summary-card"><div><span class="status-dot error"></span><span>Kontrol hatası</span><span class="summary-code">ERROR</span></div><strong id="count-ERROR">—</strong><p>Erişim veya arama hatası</p></article>
       </section>
+      <section class="panel alert-panel" aria-labelledby="alert-title">
+        <div class="panel-heading"><div><h2 id="alert-title">Splunk Alert Coverage <span id="alert-count" class="counter">0</span></h2><p>Etkin Splunk alertlerini getirir; SPL içinde açıkça tanımlanan log kaynağı ve olay türü bağımlılıklarını kontrol eder.</p></div><button id="alert-analyze" class="button primary" disabled>▷ Alertleri analiz et</button></div>
+        <div class="health-results-heading"><span id="alert-checked-at">Bağlandıktan sonra analizi başlatın.</span><a id="alert-export" class="button secondary" href="/api/alert-report.csv" hidden>Alert CSV indir</a></div>
+        <div id="alert-summary" class="health-summary"></div>
+        <div id="alert-empty" class="empty-results"><span class="empty-symbol" aria-hidden="true">⌁</span><h3>Henüz alert analizi yapılmadı.</h3><p>Splunk'a bağlanın ve Alertleri analiz et düğmesine basın.</p></div>
+        <div id="alert-wrap" class="table-scroll" hidden><table class="result-table alert-result-table"><thead><tr><th>Alert / uygulama</th><th>Kapsam</th><th>İzlenen log bağımlılıkları</th><th>Analiz</th></tr></thead><tbody id="alert-body"></tbody></table></div>
+        <p class="panel-note">Makro, lookup veya veri modeli içinde gizli kaynaklar otomatik tahmin edilmez; bu alertler manuel eşleme gerektirir.</p>
+      </section>
       <section class="panel targets-panel">
         <div class="panel-heading"><div><h2>İzlenecek kaynaklar <span id="target-count" class="counter">0</span></h2><p>Host ve source bilgilerini getir; izlenecek hedefleri düzenle.</p></div><button id="discover" class="button secondary" disabled><span aria-hidden="true">↙</span> Splunk'tan getir</button></div>
         <div class="target-toolbar"><div class="toolbar-left"><label class="button secondary upload-button" for="csv-file"><span aria-hidden="true">↑</span> CSV yükle</label><input id="csv-file" type="file" accept=".csv,text/csv" hidden><button id="export-targets" class="text-button" disabled>Hedef CSV indir</button></div><button id="add-target" class="button secondary"><span aria-hidden="true">＋</span> Hedef ekle</button></div>
