@@ -38,6 +38,7 @@ function buttonStates() {
   $("export-diagnostics").disabled = busy || !state?.diagnostics?.search || dirty;
   $("health-run").disabled = busy || !connected || !state?.health_checks?.length;
   $("alert-analyze").disabled = busy || !connected;
+  $("alert-window").disabled = busy;
   $("health-file").disabled = busy;
   ["rules-from-targets", "rule-new", "detection-new"].forEach((id) => $(id).disabled = busy);
   $("window").disabled = busy;
@@ -139,18 +140,23 @@ function renderReports() {
 }
 function applyState(next, updateTargets = true) {
   state = next; busy = next.job?.status === "RUNNING";
-  if (updateTargets) { targets = next.targets.map((t) => ({...t})); $("window").value = next.window; dirty = false; renderTargets(); }
+  if (updateTargets) { targets = next.targets.map((t) => ({...t})); $("window").value = next.window; $("alert-window").value = next.window; dirty = false; renderTargets(); }
   reports = next.reports;
   renderConnection(); renderReports(); renderDiagnostics(); renderHealth(); renderAlerts(); buttonStates();
 }
 function renderAlerts() {
   const results = state?.alert_results || [];
+  const measured = !!state?.alert_checked_at;
+  $("guardian-expected").textContent = measured ? results.length : 0;
+  $("guardian-healthy").textContent = measured ? results.filter((result) => result.status === "COVERED").length : "—";
+  $("guardian-problem").textContent = measured ? results.filter((result) => ["DEGRADED", "BLIND"].includes(result.status)).length : "—";
+  $("guardian-unknown").textContent = measured ? results.filter((result) => ["UNKNOWN", "ERROR"].includes(result.status)).length : "—";
   $("alert-count").textContent = results.length;
   $("alert-checked-at").textContent = state?.alert_checked_at ? `Ölçüm: ${state.alert_checked_at} · ${state.window} dakikalık log penceresi` : "Bağlandıktan sonra analizi başlatın.";
   $("alert-empty").hidden = !!results.length;
   if (!results.length && state?.alert_checked_at) {
-    $("alert-empty").querySelector("h3").textContent = "Erişilebilir etkin Splunk alerti bulunamadı.";
-    $("alert-empty").querySelector("p").textContent = "Hesabın saved search yetkisini ve alertlerin disabled / alert_type alanlarını kontrol edin.";
+    $("alert-empty").querySelector("h3").textContent = "Bu kullanıcıya ait etkin alert bulunamadı.";
+    $("alert-empty").querySelector("p").textContent = "Splunk'ta alertleri oluşturan kullanıcıyla giriş yaptığınızı ve alertlerin etkin/zamanlanmış olduğunu kontrol edin.";
   }
   $("alert-wrap").hidden = !results.length;
   $("alert-export").hidden = !results.length;
@@ -339,7 +345,7 @@ async function poll() {
     if (state.job?.status === "ERROR") {notice(state.job.error, "error"); if (state.job.kind === "check" && state.diagnostics?.search) $("check-details").open = true;}
     else if (state.job?.status === "DONE") {
       const kind = state.job.kind;
-      const message = kind === "connect" ? "Splunk bağlantısı doğrulandı. Hedeflerini veya alert kapsamını kontrol edebilirsin." : kind === "discover" ? targets.length ? `${targets.length} hedef hazır. Host ve source bilgilerini incele, eşikleri düzenle ve kontrolü başlat.` : "Görünür indexlerde kaynak bulunamadı. Hesabın index yetkilerini kontrol et veya CSV yükle." : kind === "health" ? "Sağlık kontrolleri tamamlandı. Sonuçları ve SPL ayrıntılarını incele." : kind === "alerts" ? `${state.alert_results?.length || 0} etkin alert analiz edildi. Log bağımlılıklarını ve kapsam durumlarını incele.` : "Kontrol tamamlandı. Sonuçları inceleyebilir ve raporu indirebilirsin.";
+      const message = kind === "connect" ? "Splunk bağlantısı doğrulandı. Kendi alertlerinin izlediği logları kontrol edebilirsin." : kind === "discover" ? targets.length ? `${targets.length} hedef hazır. Host ve source bilgilerini incele, eşikleri düzenle ve kontrolü başlat.` : "Görünür indexlerde kaynak bulunamadı. Hesabın index yetkilerini kontrol et veya CSV yükle." : kind === "health" ? "Sağlık kontrolleri tamamlandı. Sonuçları ve SPL ayrıntılarını incele." : kind === "alerts" ? `${state.alert_results?.length || 0} size ait etkin alert kontrol edildi. İzlenen logların sağlık durumunu inceleyin.` : "Kontrol tamamlandı. Sonuçları inceleyebilir ve raporu indirebilirsin.";
       const allNoData = kind === "check" && reports.length && reports.every((r) => r.status === "NO_DATA");
       const healthErrors = kind === "health" && state.health_results?.some((r) => r.status === "ERROR");
       const healthAlerts = kind === "health" && state.health_results?.some((r) => r.status !== "OK");
@@ -400,7 +406,8 @@ $("health-file").addEventListener("change", async (event) => {
   catch (error) {notice(error.message, "error");} finally {event.target.value = "";}
 });
 $("health-run").addEventListener("click", () => action("/api/health/check", {}, true));
-$("alert-analyze").addEventListener("click", () => action("/api/alerts/analyze", {window: $("window").value}, true));
+$("alert-window").addEventListener("change", () => { $("window").value = $("alert-window").value; });
+$("alert-analyze").addEventListener("click", () => action("/api/alerts/analyze", {window: $("alert-window").value}, true));
 $("rules-from-targets").addEventListener("click", async () => {
   if (!targets.length) return notice("Önce Splunk'tan kaynakları getir veya hedef CSV yükle.", "info");
   const checks = [...state.health_checks];
