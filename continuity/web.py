@@ -22,6 +22,7 @@ from .core import (
 from .splunk import SplunkClient
 from .health import Rule, Result, csv_bytes as health_csv_bytes, read_config, read_csv_rules, rule_dict, run_checks
 from .dependencies import Detection, csv_bytes as detection_csv_bytes, detection_dict, evaluate_detections
+from .alerts import AlertResult, alert_dict, analyze_alerts, csv_bytes as alert_csv_bytes
 
 
 ASSETS = Path(__file__).resolve().parent / "static"
@@ -117,6 +118,8 @@ class Session:
     detections: list[Detection] = field(default_factory=list)
     health_results: list[Result] = field(default_factory=list)
     health_checked_at: str | None = None
+    alert_results: list[AlertResult] = field(default_factory=list)
+    alert_checked_at: str | None = None
     window: int = 120
     job: Job | None = None
     touched: float = field(default_factory=time.monotonic)
@@ -139,6 +142,8 @@ class Session:
                 "detection_results": evaluate_detections(self.detections, self.health_results),
                 "health_results": [dict(result.row(), search=result.search, job=result.job) for result in self.health_results],
                 "health_checked_at": self.health_checked_at,
+                "alert_results": [alert_dict(result) for result in self.alert_results],
+                "alert_checked_at": self.alert_checked_at,
                 "job": {"kind": self.job.kind, "status": self.job.status,
                         "completed": self.job.completed, "total": self.job.total,
                         "error": self.job.error} if self.job else None,
@@ -196,6 +201,7 @@ def run_job(session: Session, job: Job, config: Config, targets: list[Target], w
                     session.reports, session.checked_at = [], None
                     session.diagnostics = {}
                     session.health_results, session.health_checked_at = [], None
+                    session.alert_results, session.alert_checked_at = [], None
         elif job.kind == "discover":
             discovered = client.discover_targets()
             merged = merge_targets(targets, discovered)
@@ -221,6 +227,21 @@ def run_job(session: Session, job: Job, config: Config, targets: list[Target], w
                 if not job.cancel.is_set():
                     session.health_results = results
                     session.health_checked_at = now.isoformat().replace("+00:00", "Z")
+        elif job.kind == "alerts":
+            now = client.get_server_time()
+            alerts = client.list_alerts()
+            with session.lock:
+                session.alert_results, session.alert_checked_at = [], None
+                job.total = len({dependency for alert in alerts for dependency in alert.dependencies})
+            def alert_progress(position):
+                with session.lock:
+                    job.completed = position
+            results = analyze_alerts(client, alerts, now, window, alert_progress, job.cancel.is_set)
+            with session.lock:
+                if not job.cancel.is_set():
+                    session.alert_results = results
+                    session.alert_checked_at = now.isoformat().replace("+00:00", "Z")
+                    job.completed = job.total
         else:
             now = client.get_server_time()
             start = now - timedelta(minutes=window)
@@ -331,6 +352,11 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(409, {"error": "Önce sağlık kontrolünü tamamlayın."}, sid=sid)
                 return self.send(200, detection_csv_bytes(evaluate_detections(session.detections, session.health_results)),
                                  "text/csv; charset=utf-8", sid, "siem-detections.csv")
+            if path == "/api/alert-report.csv":
+                if not session.alert_results or (session.job and session.job.status == "RUNNING"):
+                    return self.send(409, {"error": "Önce Splunk alert analizini tamamlayın."}, sid=sid)
+                return self.send(200, alert_csv_bytes(session.alert_results),
+                                 "text/csv; charset=utf-8", sid, "splunk-alert-coverage.csv")
             if path == "/api/health-checks.json":
                 return self.send(200, {"checks": [rule_dict(rule) for rule in session.health_rules],
                                        "detections": [detection_dict(value) for value in session.detections]}, sid=sid, filename="checks.json")
@@ -362,6 +388,7 @@ class Handler(BaseHTTPRequestHandler):
                     session.reports, session.checked_at = [], None
                     session.diagnostics = {}
                     session.health_results, session.health_checked_at = [], None
+                    session.alert_results, session.alert_checked_at = [], None
                     return self.send(200, session.snapshot(), sid=sid)
                 if session.job and session.job.status == "RUNNING":
                     return self.send(409, {"error": "Devam eden işlemin tamamlanmasını bekleyin."}, sid=sid)
@@ -398,6 +425,12 @@ class Handler(BaseHTTPRequestHandler):
                     if not session.health_rules:
                         raise ValueError("Önce sağlık kontrollerini JSON ile yükleyin.")
                     return self.start(session, sid, "health", session.config, [], session.window)
+                elif path == "/api/alerts/analyze":
+                    if session.config is None:
+                        raise ValueError("Önce Splunk'a bağlanın.")
+                    window = window_value(data.get("window", session.window))
+                    session.window = window
+                    return self.start(session, sid, "alerts", session.config, [], window)
                 elif path in {"/api/targets", "/api/import", "/api/check", "/api/discover"}:
                     window = window_value(data.get("window", 120))
                     if path == "/api/import":
