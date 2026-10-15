@@ -335,6 +335,17 @@ class SplunkClient:
                 raise CheckError("Keşif sonucu geçersiz hedef alanları içeriyor; CSV ile tanımlayın.") from None
         return targets
 
+    def list_alerts(self):
+        """Erişilebilen etkin Splunk alert/saved search tanımlarını salt okunur getirir."""
+        from .alerts import parse_alerts
+
+        deadline = time.monotonic() + self.config.search_timeout
+        payload = self.request(
+            "GET", "/servicesNS/-/-/saved/searches", deadline,
+            params={"output_mode": "json", "count": "0", "search": "disabled=0"},
+        )
+        return parse_alerts(payload)
+
     def run_search(self, search: str, *, warnings=None) -> dict:
         """Uygulamanın oluşturduğu okuma SPL'sini tamamlanana kadar bekler."""
         self.last_job = {}
