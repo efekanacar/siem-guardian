@@ -17,12 +17,13 @@ from continuity.web import Job, Session, run_job
 NOW = datetime(2026, 10, 16, 9, 30, tzinfo=timezone.utc)
 
 
-def entry(name, search, *, disabled="0", alert_type="number of events", app="search"):
+def entry(name, search, *, disabled="0", alert_type="number of events", app="search", owner="admin", is_scheduled="1"):
     return {
         "name": name,
-        "acl": {"app": app, "owner": "admin"},
+        "acl": {"app": app, "owner": owner},
         "content": {
             "disabled": disabled,
+            "is_scheduled": is_scheduled,
             "alert_type": alert_type,
             "search": search,
             "cron_schedule": "*/5 * * * *",
@@ -84,13 +85,29 @@ class AlertCoverageTests(unittest.TestCase):
         self.assertEqual(alerts[0].key, "admin/search/Process Creation")
         self.assertEqual(alerts[0].earliest, "-15m@m")
 
-    def test_client_reads_all_namespaces_without_modifying_alerts(self):
+    def test_saved_search_response_keeps_only_current_users_scheduled_alerts(self):
+        payload = {"entry": [
+            entry("Mine", "index=main sourcetype=mine", owner="analyst"),
+            entry("Another user", "index=main sourcetype=other", owner="admin"),
+            entry("Report", "index=main sourcetype=report", owner="analyst", is_scheduled="0"),
+        ]}
+        alerts = parse_alerts(payload, owner="Analyst")
+        self.assertEqual([alert.name for alert in alerts], ["Mine"])
+
+    def test_client_reads_only_current_users_namespace_and_alerts(self):
         client = SplunkClient(Config("https://splunk.invalid:8089", "token", "", "", True, 5, 30, .01))
-        client.request = Mock(return_value={"entry": [entry("Auth", "index=linux sourcetype=linux_secure")]})
+        client.request = Mock(side_effect=[
+            {"entry": [{"name": "admin", "content": {"username": "admin"}}]},
+            {"entry": [entry("Auth", "index=linux sourcetype=linux_secure"),
+                       entry("Other", "index=main sourcetype=other", owner="other")]},
+        ])
         alerts = client.list_alerts()
-        self.assertEqual(alerts[0].name, "Auth")
-        args, kwargs = client.request.call_args
-        self.assertEqual(args[:2], ("GET", "/servicesNS/-/-/saved/searches"))
+        self.assertEqual([alert.name for alert in alerts], ["Auth"])
+        first_args, first_kwargs = client.request.call_args_list[0]
+        self.assertEqual(first_args[:2], ("GET", "/services/authentication/current-context"))
+        self.assertEqual(first_kwargs["params"], {"output_mode": "json"})
+        args, kwargs = client.request.call_args_list[1]
+        self.assertEqual(args[:2], ("GET", "/servicesNS/admin/-/saved/searches"))
         self.assertEqual(kwargs["params"], {"output_mode": "json", "count": "0", "search": "disabled=0"})
         client.close()
 
