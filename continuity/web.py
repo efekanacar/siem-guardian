@@ -120,7 +120,7 @@ class Session:
     health_checked_at: str | None = None
     alert_results: list[AlertResult] = field(default_factory=list)
     alert_checked_at: str | None = None
-    window: int = 120
+    window: int = 1440
     job: Job | None = None
     touched: float = field(default_factory=time.monotonic)
     lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
