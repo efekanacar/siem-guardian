@@ -35,7 +35,7 @@ cd siem-guardian
 /usr/bin/python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-python -m unittest discover -s tests -v
+
 python webapp.py
 ```
 
@@ -47,7 +47,7 @@ Arayüz yalnız `127.0.0.1` üzerinde dinler. Ubuntu VM'de çalıştırıp başk
 ssh -L 8787:127.0.0.1:8787 kullanici@UBUNTU_IP
 ```
 
-Ardından **kendi bilgisayarınızda** `http://127.0.0.1:8787` açın. [Ayrıntılı Türkçe arayüz rehberi](docs/ARAYUZ_KULLANIM.md) kurulum ve sorun giderme adımlarını içerir.
+Ardından **kendi bilgisayarınızda** `http://127.0.0.1:8787` açın. 
 
 ## Arayüzde kullanım
 
@@ -59,7 +59,7 @@ Ardından **kendi bilgisayarınızda** `http://127.0.0.1:8787` açın. [Ayrınt�
 6. **Sağlık kontrolünü çalıştır** düğmesine basın. Üstteki sağlık kartları ve Detection Dependency Monitoring paneli bu çalışmanın sonucuyla dolar. Her satırdaki **SPL ve iş bilgisi** ayrıntısını açabilir, CSV raporlarını indirebilirsiniz.
 7. **Kuralları indir** (`checks.json`) ve **Hedef CSV indir** (`targets.csv`) ile yapılandırmanızı yedekleyin. Arayüz hedef ve kuralları aynı tarayıcının yerel depolamasında da tutar; parola/token burada tutulmaz. Gerçek envanter dosyalarını GitHub'a eklemeyin.
 
-**Belirli log örneği:** Windows Security kaynağı için `Log varlığı` kontrolünde gerçek `index`, `host`, `sourcetype` ve isterseniz `source=WinEventLog:Security` girin. Ardından aynı kaynak için `Event ID` kontrolü ekleyip `event_id_field=auto`, `event_id=4688` seçin. Başka Security olayları gelirken 4688 gelmiyorsa sonuç `ALERT` olur. [Adım adım açıklama ve JSON örneği](docs/ARAYUZ_KULLANIM.md#json-ile-tanımlamak-isterseniz) rehberde bulunur.
+**Belirli log örneği:** Windows Security kaynağı için `Log varlığı` kontrolünde gerçek `index`, `host`, `sourcetype` ve isterseniz `source=WinEventLog:Security` girin. Ardından aynı kaynak için `Event ID` kontrolü ekleyip `event_id_field=auto`, `event_id=4688` seçin. Başka Security olayları gelirken 4688 gelmiyorsa sonuç `ALERT` olur. 
 
 Sağlık sonuçlarında `OK` eşik içinde, `ALERT` ölçülen bozulma, `QUIET` aralıklı kaynakta sessizlik, `NO_DATA` sürekli beklenen kaynakta görünmeyen veri, `INSUFFICIENT_BASELINE` karar için az veri, `ERROR` arama/erişim/işleme hatasıdır. Detection sonucu `COVERED`, `IMPAIRED`, `UNKNOWN` veya henüz ölçülmediyse `PENDING` olabilir. Splunk VM kapalıysa veya API ulaşılamıyorsa hata **veri yokmuş gibi** gösterilmez.
 
@@ -128,5 +128,5 @@ Beklenen hedefler sonuçta korunur; görünmeyenler rapordan düşmez. Rol/index
 Yalnız `requests`, `python-dotenv` ve Python standart kütüphanesi kullanılır. `.gitignore`; `.env`, gerçek hedefler, `checks.json`, raporlar ve sertifikaları dışlar. Kod ve örnekler için:
 
 ```bash
-python -m unittest discover -s tests -v
+
 ```
