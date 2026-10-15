@@ -335,16 +335,32 @@ class SplunkClient:
                 raise CheckError("Keşif sonucu geçersiz hedef alanları içeriyor; CSV ile tanımlayın.") from None
         return targets
 
+    def current_username(self, deadline: float | None = None) -> str:
+        """Kimlik doğrulanan Splunk kullanıcısını current-context üzerinden döndürür."""
+        deadline = deadline or time.monotonic() + self.config.search_timeout
+        payload = self.request(
+            "GET", "/services/authentication/current-context", deadline,
+            params={"output_mode": "json"},
+        )
+        try:
+            entries = payload["entry"]
+            content = entries[0]["content"]
+            username = content.get("username") or entries[0].get("name")
+            return validate_text(username, "name")
+        except (KeyError, IndexError, TypeError, ValueError):
+            raise CheckError("Splunk oturum kullanıcısı belirlenemedi.") from None
+
     def list_alerts(self):
-        """Erişilebilen etkin Splunk alert/saved search tanımlarını salt okunur getirir."""
+        """Yalnız oturum sahibinin etkin ve zamanlanmış alertlerini salt okunur getirir."""
         from .alerts import parse_alerts
 
         deadline = time.monotonic() + self.config.search_timeout
+        username = self.current_username(deadline)
         payload = self.request(
-            "GET", "/servicesNS/-/-/saved/searches", deadline,
+            "GET", f"/servicesNS/{quote(username, safe='')}/-/saved/searches", deadline,
             params={"output_mode": "json", "count": "0", "search": "disabled=0"},
         )
-        return parse_alerts(payload)
+        return parse_alerts(payload, owner=username)
 
     def run_search(self, search: str, *, warnings=None) -> dict:
         """Uygulamanın oluşturduğu okuma SPL'sini tamamlanana kadar bekler."""
