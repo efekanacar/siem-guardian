@@ -124,9 +124,3 @@ python healthcheck.py --checks checks.json --output reports/health.csv --show-sp
 Son log **gelişi** `_indextime` üzerinden ölçülür. `_time` olay zamanıdır; bugün indekslenen eski bir olayı yanlışlıkla bugünün olayı saymamak için geliş ve olay zamanı ayrı ele alınır. Kontrol penceresi `_index_earliest`/`_index_latest` ve kesin `_indextime` koşuluyla uygulanır; event-time aralığı gecikmiş veya yanlış parse edilmiş olayları kaçırmamak için geniş tutulur. Apache zaman kuralı, ham Apache zamanını `_time` ile ayrıca karşılaştırabilir. Hacim kuralı önceki **eşit uzunluktaki** aralığı kullanır; mesai/hafta döngülerine göre eşikleri sizin ayarlamanız gerekir.
 
 Beklenen hedefler sonuçta korunur; görünmeyenler rapordan düşmez. Rol/index yetkisi veya bozuk/kısmi Splunk araması güvenilir ölçümü engelleyebilir. `ERROR` böyle durumlarda `NO_DATA`ya dönüştürülmez. Splunk hesabının hedef indexleri görebildiğini ayrıca doğrulayın. Gerçek Splunk ortamınızda uçtan uca sonucu kendi verinizle test edin.
-
-Yalnız `requests`, `python-dotenv` ve Python standart kütüphanesi kullanılır. `.gitignore`; `.env`, gerçek hedefler, `checks.json`, raporlar ve sertifikaları dışlar. Kod ve örnekler için:
-
-```bash
-
-```
