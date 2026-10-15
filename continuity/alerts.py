@@ -169,7 +169,8 @@ def extract_dependencies(search: str) -> tuple[tuple[AlertDependency, ...], tupl
     return tuple(dependencies), tuple(dict.fromkeys(warnings))
 
 
-def parse_alerts(payload: dict) -> list[AlertDefinition]:
+def parse_alerts(payload: dict, owner: str | None = None) -> list[AlertDefinition]:
+    """Yalnız etkin, zamanlanmış alertleri ve istenirse belirtilen sahibi döndürür."""
     entries = payload.get("entry")
     if not isinstance(entries, list):
         raise CheckError("Splunk saved search yanıtı geçersiz.")
@@ -181,6 +182,8 @@ def parse_alerts(payload: dict) -> list[AlertDefinition]:
             content = entry["content"]
             if _bool(content.get("disabled", False), "disabled"):
                 continue
+            if not _bool(content.get("is_scheduled", True), "is_scheduled"):
+                continue
             alert_type = _text(str(content.get("alert_type", "")), "alert_type", 128, True)
             if not alert_type or alert_type.lower() == "none":
                 continue
@@ -188,10 +191,12 @@ def parse_alerts(payload: dict) -> list[AlertDefinition]:
             search = _text(content.get("search", ""), "Alert SPL")
             acl = entry.get("acl") if isinstance(entry.get("acl"), dict) else {}
             app = _text(str(acl.get("app", "unknown")), "Uygulama", 256)
-            owner = _text(str(acl.get("owner", "unknown")), "Sahip", 256)
+            alert_owner = _text(str(acl.get("owner", "unknown")), "Sahip", 256)
+            if owner is not None and alert_owner.casefold() != owner.casefold():
+                continue
             dependencies, warnings = extract_dependencies(search)
             alerts.append(AlertDefinition(
-                f"{owner}/{app}/{name}", name, app, owner, search, alert_type,
+                f"{alert_owner}/{app}/{name}", name, app, alert_owner, search, alert_type,
                 _text(str(content.get("cron_schedule", "")), "Cron", 256, True),
                 _text(str(content.get("dispatch.earliest_time", "")), "Earliest", 256, True),
                 _text(str(content.get("dispatch.latest_time", "")), "Latest", 256, True),
