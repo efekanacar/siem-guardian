@@ -112,7 +112,9 @@ class WebTests(unittest.TestCase):
         self.assertIn("Linux auth failures", exported.content.decode("utf-8-sig"))
         html = self.browser.get(self.url + "/", timeout=3).text
         self.assertIn('id="alert-analyze"', html)
-        self.assertIn("Splunk Alert Coverage", html)
+        self.assertIn("Alert log sağlığı", html)
+        self.assertIn('id="alert-window"', html)
+        self.assertIn('class="panel targets-panel" hidden', html)
 
     def test_clock_failure_does_not_publish_no_data(self):
         self.connect()
