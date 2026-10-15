@@ -12,6 +12,7 @@ Python 3.10+ ile çalışır. Sade bir yerel web arayüzü ve komut satırı (CL
 
 | Kontrol | Yanıtladığı soru |
 | --- | --- |
+| Splunk alert kapsamı | Etkin alert hangi log kaynaklarına ve olay türlerine bağlı; bu bağımlılıklarda hâlâ veri var mı? |
 | Kaynak sürekliliği | Beklenen `index + host + sourcetype` birleşiminden son log ne zaman geldi? |
 | Log varlığı | Belirli `source` dosyası/kanalı seçilen aralıkta veri üretti mi? |
 | Event ID | Örneğin Windows Security **4688** veya Sysmon **1** hâlâ geliyor mu? |
@@ -25,6 +26,14 @@ Python 3.10+ ile çalışır. Sade bir yerel web arayüzü ve komut satırı (CL
 
 Makineleriniz bazen kapalıysa kaynağı **aralıklı** seçebilirsiniz. Veri görülmemesi bu durumda `QUIET` olur; kesin arıza ilan edilmez. Aynı hosttan başka bir kontrol `OK` iken beklenen akış sessizse etkinlik referansı ile daha anlamlı bir `ALERT` üretilebilir. `NO_DATA` da tek başına “kaynak durmuş” kanıtı değildir.
 
+## Splunk alert bazlı analiz
+
+Arayüzdeki **Alertleri analiz et** düğmesi, erişim hesabının görebildiği etkin alertleri `/servicesNS/-/-/saved/searches` REST endpoint'inden salt okunur olarak getirir. Her alertin SPL'i içindeki açık `index`, `host`, `sourcetype`, `source` ve `EventCode`/`EventID` eşitlikleri çıkarılır. Araç bu bağımlılıkları seçilen kontrol aralığında `_indextime` üzerinden ayrı ayrı sorgular.
+
+Alert sonucu `COVERED` ise çıkarılan bağımlılıkların tamamında veri vardır. `DEGRADED` bazı bağımlılıkların eksik veya doğrulanamaz olduğunu, `BLIND` açık bağımlılıkların hiçbirinde veri görülmediğini, `UNKNOWN` SPL'den güvenilir kaynak çıkarılamadığını ve `ERROR` bir sorgunun tamamlanamadığını gösterir. Sonuçlar **Alert CSV indir** ile dışarı alınabilir.
+
+SPL makrosu, lookup, veri modeli veya wildcard içinde saklanan kaynaklar tahmin edilmez. Bu alertler `UNKNOWN`/uyarı ile gösterilir ve manuel sağlık kuralı gerektirir. Böylece araç çözümleyemediği bir alert için yanlış biçimde “kapsam sağlıklı” demez.
+
 ## Ubuntu kurulumu
 
 ```bash
@@ -35,7 +44,7 @@ cd siem-guardian
 /usr/bin/python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-
+python -m unittest discover -s tests -v
 python webapp.py
 ```
 
@@ -47,19 +56,20 @@ Arayüz yalnız `127.0.0.1` üzerinde dinler. Ubuntu VM'de çalıştırıp başk
 ssh -L 8787:127.0.0.1:8787 kullanici@UBUNTU_IP
 ```
 
-Ardından **kendi bilgisayarınızda** `http://127.0.0.1:8787` açın. 
+Ardından **kendi bilgisayarınızda** `http://127.0.0.1:8787` açın. [Ayrıntılı Türkçe arayüz rehberi](docs/ARAYUZ_KULLANIM.md) kurulum ve sorun giderme adımlarını içerir.
 
 ## Arayüzde kullanım
 
 1. Solda Splunk **Management API** adresini (`https://SUNUCU:8089`) ve kullanıcı/parola **veya** Bearer token girip **Bağlan** seçin. `:8000` Splunk Web portudur; API adresi olarak kullanmayın.
-2. **Splunk'tan getir** ile görünen `index`, `host`, `sourcetype` ve `source` değerlerini listeleyin. Henüz log göndermemiş ama beklediğiniz kaynakları **Hedef ekle** veya hedef CSV ile ayrıca girin. Keşif, beklenen envanterin yerine geçmez.
-3. Genel geliş kontrolü için hedef eşiğini ve kontrol aralığını belirleyip sayfanın altındaki **Kontrolü çalıştır** düğmesine basın. Aralık bütün hedef eşiklerinden **uzun** olmalıdır. `OK`, `DELAYED`, `NO_DATA`, `ERROR` sonuçlarını ve CSV raporunu alın.
-4. **İzlenecek kaynaklardan kurallar oluştur** ile her hedefe bir log varlığı kontrolü ekleyin. **Kontrol ekle** formuyla Event ID, alan, zaman, hacim veya yönlendirme kuralı ekleyin. `source` yalnız belirli dosya/kanalı izlemek istiyorsanız doldurulur. Aynı Splunk kaynak satırının alanlarını kullanın; wildcard desteklenmez.
-5. **Detection ekle** formunda bir tespitin ihtiyaç duyduğu sağlık kontrollerini seçin. **Alternatif: biri yeterli** (`any`) veya **Zorunlu: hepsi gerekli** (`all`) seçimini yapın ve etki açıklamasını yazın.
-6. **Sağlık kontrolünü çalıştır** düğmesine basın. Üstteki sağlık kartları ve Detection Dependency Monitoring paneli bu çalışmanın sonucuyla dolar. Her satırdaki **SPL ve iş bilgisi** ayrıntısını açabilir, CSV raporlarını indirebilirsiniz.
-7. **Kuralları indir** (`checks.json`) ve **Hedef CSV indir** (`targets.csv`) ile yapılandırmanızı yedekleyin. Arayüz hedef ve kuralları aynı tarayıcının yerel depolamasında da tutar; parola/token burada tutulmaz. Gerçek envanter dosyalarını GitHub'a eklemeyin.
+2. **Alertleri analiz et** ile etkin Splunk alertlerini ve SPL'den çıkarılan log bağımlılıklarını kontrol edin. Sonuç satırından alert SPL'ini ve araç tarafından çalıştırılan sağlık sorgularını açabilirsiniz.
+3. **Splunk'tan getir** ile görünen `index`, `host`, `sourcetype` ve `source` değerlerini listeleyin. Henüz log göndermemiş ama beklediğiniz kaynakları **Hedef ekle** veya hedef CSV ile ayrıca girin. Keşif, beklenen envanterin yerine geçmez.
+4. Genel geliş kontrolü için hedef eşiğini ve kontrol aralığını belirleyip sayfanın altındaki **Kontrolü çalıştır** düğmesine basın. Aralık bütün hedef eşiklerinden **uzun** olmalıdır. `OK`, `DELAYED`, `NO_DATA`, `ERROR` sonuçlarını ve CSV raporunu alın.
+5. **İzlenecek kaynaklardan kurallar oluştur** ile her hedefe bir log varlığı kontrolü ekleyin. **Kontrol ekle** formuyla Event ID, alan, zaman, hacim veya yönlendirme kuralı ekleyin. `source` yalnız belirli dosya/kanalı izlemek istiyorsanız doldurulur. Aynı Splunk kaynak satırının alanlarını kullanın; wildcard desteklenmez.
+6. **Detection ekle** formunda bir tespitin ihtiyaç duyduğu sağlık kontrollerini seçin. **Alternatif: biri yeterli** (`any`) veya **Zorunlu: hepsi gerekli** (`all`) seçimini yapın ve etki açıklamasını yazın.
+7. **Sağlık kontrolünü çalıştır** düğmesine basın. Üstteki sağlık kartları ve Detection Dependency Monitoring paneli bu çalışmanın sonucuyla dolar. Her satırdaki **SPL ve iş bilgisi** ayrıntısını açabilir, CSV raporlarını indirebilirsiniz.
+8. **Kuralları indir** (`checks.json`) ve **Hedef CSV indir** (`targets.csv`) ile yapılandırmanızı yedekleyin. Arayüz hedef ve kuralları aynı tarayıcının yerel depolamasında da tutar; parola/token burada tutulmaz. Gerçek envanter dosyalarını GitHub'a eklemeyin.
 
-**Belirli log örneği:** Windows Security kaynağı için `Log varlığı` kontrolünde gerçek `index`, `host`, `sourcetype` ve isterseniz `source=WinEventLog:Security` girin. Ardından aynı kaynak için `Event ID` kontrolü ekleyip `event_id_field=auto`, `event_id=4688` seçin. Başka Security olayları gelirken 4688 gelmiyorsa sonuç `ALERT` olur. 
+**Belirli log örneği:** Windows Security kaynağı için `Log varlığı` kontrolünde gerçek `index`, `host`, `sourcetype` ve isterseniz `source=WinEventLog:Security` girin. Ardından aynı kaynak için `Event ID` kontrolü ekleyip `event_id_field=auto`, `event_id=4688` seçin. Başka Security olayları gelirken 4688 gelmiyorsa sonuç `ALERT` olur. [Adım adım açıklama ve JSON örneği](docs/ARAYUZ_KULLANIM.md#json-ile-tanımlamak-isterseniz) rehberde bulunur.
 
 Sağlık sonuçlarında `OK` eşik içinde, `ALERT` ölçülen bozulma, `QUIET` aralıklı kaynakta sessizlik, `NO_DATA` sürekli beklenen kaynakta görünmeyen veri, `INSUFFICIENT_BASELINE` karar için az veri, `ERROR` arama/erişim/işleme hatasıdır. Detection sonucu `COVERED`, `IMPAIRED`, `UNKNOWN` veya henüz ölçülmediyse `PENDING` olabilir. Splunk VM kapalıysa veya API ulaşılamıyorsa hata **veri yokmuş gibi** gösterilmez.
 
@@ -124,3 +134,9 @@ python healthcheck.py --checks checks.json --output reports/health.csv --show-sp
 Son log **gelişi** `_indextime` üzerinden ölçülür. `_time` olay zamanıdır; bugün indekslenen eski bir olayı yanlışlıkla bugünün olayı saymamak için geliş ve olay zamanı ayrı ele alınır. Kontrol penceresi `_index_earliest`/`_index_latest` ve kesin `_indextime` koşuluyla uygulanır; event-time aralığı gecikmiş veya yanlış parse edilmiş olayları kaçırmamak için geniş tutulur. Apache zaman kuralı, ham Apache zamanını `_time` ile ayrıca karşılaştırabilir. Hacim kuralı önceki **eşit uzunluktaki** aralığı kullanır; mesai/hafta döngülerine göre eşikleri sizin ayarlamanız gerekir.
 
 Beklenen hedefler sonuçta korunur; görünmeyenler rapordan düşmez. Rol/index yetkisi veya bozuk/kısmi Splunk araması güvenilir ölçümü engelleyebilir. `ERROR` böyle durumlarda `NO_DATA`ya dönüştürülmez. Splunk hesabının hedef indexleri görebildiğini ayrıca doğrulayın. Gerçek Splunk ortamınızda uçtan uca sonucu kendi verinizle test edin.
+
+Yalnız `requests`, `python-dotenv` ve Python standart kütüphanesi kullanılır. `.gitignore`; `.env`, gerçek hedefler, `checks.json`, raporlar ve sertifikaları dışlar. Kod ve örnekler için:
+
+```bash
+python -m unittest discover -s tests -v
+```
