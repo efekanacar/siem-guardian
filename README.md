@@ -1,145 +1,204 @@
 # SIEM Guardian
 
-**Splunk için yerel SIEM sağlık ve log kapsama aracı.** Bir hosttan herhangi bir log gelmesi, ihtiyaç duyduğunuz bütün güvenlik loglarının geldiği anlamına gelmez. SIEM Guardian, beklenen kaynakları ve belirli olay türlerini kontrol eder; bir tespitin ihtiyaç duyduğu loglar kaybolduğunda bunun tespit kabiliyetine etkisini gösterir.
+**SIEM Guardian, Splunk alertlerinin ihtiyaç duyduğu logların gelip gelmediğini kontrol eden yerel bir Python aracıdır.**
 
-Python 3.10+ ile çalışır. Sade bir yerel web arayüzü ve komut satırı (CLI) sunar. Splunk üzerinde yalnız **okuma amaçlı aramalar** yapar; index, forwarder veya detection ayarlarını değiştirmez.
+Bir alertin Splunk'ta tanımlı ve etkin olması, o alertin çalışması için gereken
+logların hâlâ geldiği anlamına gelmez. SIEM Guardian giriş yapan kullanıcıya ait
+alertleri okur, SPL içindeki açık log bağımlılıklarını çıkarır ve bu logları
+seçilen zaman aralığında doğrular.
 
-![SIEM Guardian yerel dashboard ekran görüntüsü](docs/siem-guardian.png)
+Örneğin bir PowerShell alerti Sysmon Event ID 1 veya PowerShell 4104 verisine
+bağlıysa ve bu veri artık gelmiyorsa araç ilgili alerti riskli gösterir.
 
-> Görüntü bir lab oturumundaki anlık sonuçtur; kurulumunuzda aynı sayılar beklenmez. Görünen `192.168.3.131` adresi örnek lab ortamınındır. Ekranda TLS doğrulaması lab için kapatılmıştır; varsayılan ayar açıktır.
+## Ne yapar?
 
-## Neler yapar?
+1. Splunk Management API'ye salt okunur olarak bağlanır.
+2. Giriş yapan kullanıcıyı `/services/authentication/current-context` ile bulur.
+3. Yalnız bu kullanıcıya ait, etkin ve zamanlanmış alertleri getirir.
+4. Alert SPL'lerinden sabit `index`, `host`, `sourcetype`, `source`,
+   `EventCode` ve `EventID` değerlerini çıkarır.
+5. Her benzersiz log bağımlılığını seçilen aralıkta `_indextime` üzerinden
+   kontrol eder.
+6. Alert bazında sağlık sonucu, olay sayısı, son log geliş zamanı ve kullanılan
+   kontrol SPL'ini gösterir.
+7. Sonuçları CSV olarak dışarı aktarır.
 
-| Kontrol | Yanıtladığı soru |
+Araç başka kullanıcıların, Splunk'ın veya kurulu uygulamaların alertlerini
+listelemez. Kullanıcı adıyla giriş yapıldığında o kullanıcının; token ile giriş
+yapıldığında token sahibinin alertleri değerlendirilir.
+
+## Durumlar
+
+| Durum | Anlamı |
 | --- | --- |
-| Splunk alert kapsamı | Etkin alert hangi log kaynaklarına ve olay türlerine bağlı; bu bağımlılıklarda hâlâ veri var mı? |
-| Kaynak sürekliliği | Beklenen `index + host + sourcetype` birleşiminden son log ne zaman geldi? |
-| Log varlığı | Belirli `source` dosyası/kanalı seçilen aralıkta veri üretti mi? |
-| Event ID | Örneğin Windows Security **4688** veya Sysmon **1** hâlâ geliyor mu? |
-| Gerekli alan | Detection için gereken `CommandLine` gibi bir alan olaylarda dolu mu? |
-| Zaman doğruluğu | Apache ham zaman damgası `_time` alanına doğru ayrıştırılmış mı? |
-| Hacim | Önceki eşit aralığa göre log sayısı belirlenen oranda düştü mü? |
-| Index yönlendirmesi | Aynı host ve sourcetype logları beklenen index yerine başka indexe mi gidiyor? |
-| Detection bağımlılığı | Gerekli loglar eksikse hangi tespit kabiliyeti etkilenmiş olabilir? |
+| `COVERED` | Alertin çıkarılabilen bütün log bağımlılıklarında veri görüldü. |
+| `DEGRADED` | Bazı gerekli loglar geliyor, bazıları gelmiyor veya doğrulanamadı. |
+| `BLIND` | Alertin açık log bağımlılıklarının hiçbirinde veri görülmedi. |
+| `UNKNOWN` | SPL'den güvenilir bir log kaynağı çıkarılamadı. |
+| `ERROR` | Splunk araması, erişim veya sonuç işleme hatası oluştu. |
 
-Örneğin **PowerShell tespiti**, Sysmon Event ID 1 **veya** PowerShell 4104'e bağlı olarak tanımlanabilir. İki akış da sorunluysa panel “PowerShell tespit kabiliyeti etkilenmiş olabilir” der. Bu, gerçek detection kuralının çalıştığını veya alarm ürettiğini doğrulamaz; **log bağımlılığını** ölçer.
+`BLIND`, kaynağın kesin olarak durduğunu tek başına kanıtlamaz. Düşük log hacmi,
+kapalı sistemler ve seçilen kontrol aralığı sonucu etkileyebilir.
 
-Makineleriniz bazen kapalıysa kaynağı **aralıklı** seçebilirsiniz. Veri görülmemesi bu durumda `QUIET` olur; kesin arıza ilan edilmez. Aynı hosttan başka bir kontrol `OK` iken beklenen akış sessizse etkinlik referansı ile daha anlamlı bir `ALERT` üretilebilir. `NO_DATA` da tek başına “kaynak durmuş” kanıtı değildir.
+## Gereksinimler
 
-## Splunk alert bazlı analiz
+- Python 3.10 veya üzeri
+- Splunk Enterprise Management API erişimi
+- Alertleri ve ilgili indexleri okuyabilen bir Splunk hesabı veya token
+- `requests` ve `python-dotenv`
 
-Arayüz, önce `/services/authentication/current-context` ile giriş yapan Splunk kullanıcısını belirler. Ardından yalnız bu kullanıcıya ait, etkin ve zamanlanmış alertleri kullanıcının `/servicesNS/{kullanıcı}/-/saved/searches` ad alanından salt okunur olarak getirir. Başka kullanıcıların, Splunk'ın veya kurulu uygulamaların alertleri listeye eklenmez.
-
-Her alertin SPL'i içindeki açık `index`, `host`, `sourcetype`, `source` ve `EventCode`/`EventID` eşitlikleri çıkarılır. Araç bu bağımlılıkları seçilen kontrol aralığında `_indextime` üzerinden ayrı ayrı sorgular. Arayüzün ana görünümü yalnız alert sayısını ve bu alertlerin izlediği logların sağlık durumunu gösterir.
-
-Alert sonucu `COVERED` ise çıkarılan bağımlılıkların tamamında veri vardır. `DEGRADED` bazı bağımlılıkların eksik veya doğrulanamaz olduğunu, `BLIND` açık bağımlılıkların hiçbirinde veri görülmediğini, `UNKNOWN` SPL'den güvenilir kaynak çıkarılamadığını ve `ERROR` bir sorgunun tamamlanamadığını gösterir. Sonuçlar **Alert CSV indir** ile dışarı alınabilir.
-
-SPL makrosu, lookup, veri modeli veya wildcard içinde saklanan kaynaklar tahmin edilmez. Bu alertler `UNKNOWN`/uyarı ile gösterilir ve manuel sağlık kuralı gerektirir. Böylece araç çözümleyemediği bir alert için yanlış biçimde “kapsam sağlıklı” demez.
+Splunk Web genellikle `8000`, Management API ise `8089` portunu kullanır. Bu
+araçta `https://SPLUNK_IP:8089` biçimindeki management adresi kullanılmalıdır.
 
 ## Ubuntu kurulumu
 
 ```bash
 sudo apt update
 sudo apt install -y git python3 python3-venv python3-pip
+
 git clone https://github.com/efekanacar/siem-guardian.git
 cd siem-guardian
+
 /usr/bin/python3 -m venv .venv
 source .venv/bin/activate
+python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+```
+
+Testleri çalıştırın:
+
+```bash
 python -m unittest discover -s tests -v
+```
+
+Arayüzü başlatın:
+
+```bash
 python webapp.py
 ```
 
-Tarayıcıda **http://127.0.0.1:8787** açın. Terminal açık kalmalıdır; durdurmak için `Ctrl+C` kullanın. Port doluysa `python webapp.py --port 8788` çalıştırıp aynı portu tarayıcıda açın. Sanal ortamı normal kullanıcı hesabınızla oluşturun; eski, bozuk bir `(.venv)` etkinse önce `deactivate` yapın ve yeni klasörde `/usr/bin/python3 -m venv .venv` komutunu kullanın.
+Tarayıcıdan açın:
 
-Arayüz yalnız `127.0.0.1` üzerinde dinler. Ubuntu VM'de çalıştırıp başka bilgisayardan erişmek isterseniz SSH tüneli açabilirsiniz:
+```text
+http://127.0.0.1:8787
+```
+
+Port kullanımdaysa:
 
 ```bash
-ssh -L 8787:127.0.0.1:8787 kullanici@UBUNTU_IP
+python webapp.py --port 8788
 ```
 
-Ardından **kendi bilgisayarınızda** `http://127.0.0.1:8787` açın. [Ayrıntılı Türkçe arayüz rehberi](docs/ARAYUZ_KULLANIM.md) kurulum ve sorun giderme adımlarını içerir.
+## Kullanım
 
-## Arayüzde kullanım
+1. **Management adresi** alanına `https://SPLUNK_IP:8089` yazın.
+2. Alertleri oluşturan Splunk kullanıcısının kullanıcı adı/parolasını veya bu
+   kullanıcıya ait Bearer token'ı girin.
+3. Geçerli sertifikanız varsa TLS doğrulamasını açık bırakın. Self-signed lab
+   sertifikasında doğrulamayı bilinçli olarak kapatabilirsiniz.
+4. **Bağlan** düğmesine basın.
+5. Kontrol aralığını dakika olarak seçin. Varsayılan `1440`, son 24 saattir.
+6. **Logları kontrol et** düğmesine basın.
+7. Her alertin durumunu ve izlediği logları inceleyin.
+8. Gerektiğinde **Alert SPL ve kontrol sorguları** bölümünü açın.
+9. **Alert CSV indir** ile raporu alın.
 
-1. Solda Splunk **Management API** adresini (`https://SUNUCU:8089`) ve alertleri oluşturan kullanıcıya ait kullanıcı/parola **veya** Bearer token bilgisini girip **Bağlan** seçin. `:8000` Splunk Web portudur; API adresi olarak kullanmayın.
-2. Kontrol aralığını dakika olarak seçin. Varsayılan `1440`, son 24 saati ifade eder. Sistemler daha seyrek çalışıyorsa aralığı büyütebilirsiniz.
-3. **Logları kontrol et** düğmesine basın. Araç yalnız giriş yapan kullanıcıya ait etkin ve zamanlanmış alertleri getirir.
-4. Üst kartlarda alert sayısını, sağlıklı alertleri, log kaybı riski bulunan alertleri ve incelenmesi gereken SPL'leri görün.
-5. Her alert satırında izlenen `index`, `host`, `sourcetype`, `source` ve Event ID değerlerini; olay sayısını ve son log geliş zamanını inceleyin.
-6. **Alert SPL ve kontrol sorguları** ayrıntısını açarak özgün alert sorgusunu ve aracın çalıştırdığı salt okunur sağlık sorgusunu karşılaştırın.
-7. **Alert CSV indir** ile sonuçları dışarı alın.
+Sistemler sürekli açık değilse daha uzun bir aralık kullanabilirsiniz:
 
-Kullanıcı adıyla giriş yapıyorsanız alertleri hangi Splunk kullanıcısı oluşturduysa aynı kullanıcıyla bağlanın. Token kullanıyorsanız token sahibinin alertleri değerlendirilir.
+| Süre | Dakika |
+| --- | ---: |
+| 24 saat | `1440` |
+| 3 gün | `4320` |
+| 7 gün | `10080` |
 
-**Belirli log örneği:** Windows Security kaynağı için `Log varlığı` kontrolünde gerçek `index`, `host`, `sourcetype` ve isterseniz `source=WinEventLog:Security` girin. Ardından aynı kaynak için `Event ID` kontrolü ekleyip `event_id_field=auto`, `event_id=4688` seçin. Başka Security olayları gelirken 4688 gelmiyorsa sonuç `ALERT` olur. [Adım adım açıklama ve JSON örneği](docs/ARAYUZ_KULLANIM.md#json-ile-tanımlamak-isterseniz) rehberde bulunur.
+Ayrıntılı anlatım için [Türkçe arayüz rehberine](docs/ARAYUZ_KULLANIM.md)
+bakabilirsiniz.
 
-Sağlık sonuçlarında `OK` eşik içinde, `ALERT` ölçülen bozulma, `QUIET` aralıklı kaynakta sessizlik, `NO_DATA` sürekli beklenen kaynakta görünmeyen veri, `INSUFFICIENT_BASELINE` karar için az veri, `ERROR` arama/erişim/işleme hatasıdır. Detection sonucu `COVERED`, `IMPAIRED`, `UNKNOWN` veya henüz ölçülmediyse `PENDING` olabilir. Splunk VM kapalıysa veya API ulaşılamıyorsa hata **veri yokmuş gibi** gösterilmez.
+## Araç alert bağımlılığını nasıl bulur?
 
-## CSV ve JSON ile yapılandırma
+Örnek alert SPL'i:
 
-Arayüzden form kullanmak yeterlidir. Dosya tercih ederseniz `targets.example.csv` ve `checks.example.json` dosyalarını örnek alın; ikisi de **tamamen sahte** host/index değerleri içerir. Gerçek hedef CSV başlığı:
-
-```csv
-name,index,host,sourcetype,max_delay_minutes
-Windows Security,GERCEK_INDEX,GERCEK_HOST,XmlWinEventLog:Security,30
+```spl
+index="windows" sourcetype="XmlWinEventLog:Security" EventCode=4688
 ```
 
-Sağlık kontrolleri `checks.json` içindeki `checks` listesinde, detection bağımlılıkları `detections` listesinde tanımlanır. Örnek:
+Araç bu sorgudan aşağıdaki bağımlılığı çıkarır:
 
-```json
-{
-  "checks": [
-    {
-      "name": "Windows 4688",
-      "kind": "event_id",
-      "index": "GERCEK_INDEX",
-      "host": "GERCEK_HOST",
-      "sourcetype": "XmlWinEventLog:Security",
-      "window_minutes": 240,
-      "availability": "intermittent",
-      "event_id_field": "auto",
-      "event_id": "4688",
-      "min_events": 1
-    }
-  ],
-  "detections": [
-    {
-      "name": "Süreç oluşturma kapsamı",
-      "technique": "T1059",
-      "mode": "all",
-      "checks": ["Windows 4688"],
-      "impact": "Süreç oluşturma tespit kabiliyeti etkilenmiş olabilir."
-    }
-  ]
-}
+```text
+index=windows
+sourcetype=XmlWinEventLog:Security
+Event ID=4688
 ```
 
-`index`, `host`, `sourcetype` tam eşleşmelidir. `source` isteğe bağlıdır. Detection içindeki `checks` adları sağlık kontrollerinin `name` değerleriyle birebir aynı olmalıdır. Sysmon henüz kurulu değilse örnekteki Sysmon kuralını gerçek envantere eklemeyin.
+Sonra ilgili olayların seçilen aralıkta Splunk'a gerçekten ulaşıp ulaşmadığını
+kontrol eder. Geliş zamanı `_time` yerine `_indextime` ile ölçülür. Böylece bugün
+indekslenen eski bir olay yeni olay gibi yorumlanmaz.
 
-## CLI kullanımı
+Aynı log bağımlılığı birden fazla alert tarafından kullanılıyorsa Splunk sorgusu
+bir kez çalıştırılır ve sonuç ilgili alertlerde yeniden kullanılır.
 
-Arayüzde kimlik bilgileri girilir; CLI için `.env` dosyası gerekir:
+## SPL sınırları
 
-```bash
-cp .env.example .env
-cp targets.example.csv targets.csv
-cp checks.example.json checks.json
-# .env, targets.csv ve checks.json içindeki örnek değerleri kendi ortamınıza göre düzenleyin.
-python checker.py --targets targets.csv --window-minutes 120 --output reports/continuity.csv
-python healthcheck.py --checks checks.json --output reports/health.csv --show-spl
+Araç yalnız sorguda açıkça görülen sabit kaynak değerlerini güvenle çıkarır.
+Aşağıdaki yapıların içindeki kaynakları tahmin etmez:
+
+- SPL makroları
+- lookup dosyaları
+- `tstats` ve veri modelleri
+- wildcard içeren kaynak seçimleri
+- çalışma anında değişen token değerleri
+
+Bu alertler `UNKNOWN` veya uyarılı sonuçla gösterilir. Araç çözümleyemediği bir
+alerti yanlışlıkla sağlıklı kabul etmez. Ayrıntı bölümünde özgün alert SPL'i her
+zaman görüntülenebilir.
+
+## Beklediğiniz alert sayısı görünmüyorsa
+
+Splunk Search ekranında şu sorguyu çalıştırın:
+
+```spl
+| rest /servicesNS/-/-/saved/searches
+| search disabled=0 is_scheduled=1 alert_type!="none"
+| stats count values(title) by eai:acl.owner
 ```
 
-`.env` içinde `SPLUNK_BASE_URL=https://SUNUCU:8089` ve `SPLUNK_TOKEN` **veya** `SPLUNK_USERNAME` + `SPLUNK_PASSWORD` doldurun. TLS doğrulaması varsayılan açıktır; özel CA için `SPLUNK_CA_BUNDLE` kullanın. Yalnız lab için açıkça `SPLUNK_VERIFY_TLS=false` seçilebilir. HTTP ve Splunk search timeout'ları vardır; arama bitmeden sonuç alınmaz. İsteğe bağlı webhook/e-posta bildirimi CLI'da yapılandırılır ve yalnız `--notify` ile gönderilir; arayüz otomatik bildirim göndermez.
+Beklediğiniz alertler hangi `eai:acl.owner` altında görünüyorsa SIEM Guardian'a
+o kullanıcı veya o kullanıcıya ait token ile bağlanın. Başka kullanıcıya ya da
+`nobody` sahibine aktarılmış alertler bilinçli olarak listeye alınmaz.
 
-## Ölçüm ve sınırlar
+## Güvenlik
 
-Son log **gelişi** `_indextime` üzerinden ölçülür. `_time` olay zamanıdır; bugün indekslenen eski bir olayı yanlışlıkla bugünün olayı saymamak için geliş ve olay zamanı ayrı ele alınır. Kontrol penceresi `_index_earliest`/`_index_latest` ve kesin `_indextime` koşuluyla uygulanır; event-time aralığı gecikmiş veya yanlış parse edilmiş olayları kaçırmamak için geniş tutulur. Apache zaman kuralı, ham Apache zamanını `_time` ile ayrıca karşılaştırabilir. Hacim kuralı önceki **eşit uzunluktaki** aralığı kullanır; mesai/hafta döngülerine göre eşikleri sizin ayarlamanız gerekir.
+- Splunk üzerinde yalnız GET ve salt okunur arama işlemleri yapılır.
+- Alert, index, input veya forwarder ayarları değiştirilmez.
+- Arama tamamlanmadan sonuç alınmaz.
+- HTTP ve Splunk arama zaman aşımı vardır.
+- Parola ve token raporlara veya tarayıcı yerel depolamasına yazılmaz.
+- Arayüz varsayılan olarak yalnız `127.0.0.1` üzerinde dinler.
+- TLS doğrulaması varsayılan olarak açıktır.
+- `ERROR` sonuçları `NO_DATA` gibi gösterilmez.
 
-Beklenen hedefler sonuçta korunur; görünmeyenler rapordan düşmez. Rol/index yetkisi veya bozuk/kısmi Splunk araması güvenilir ölçümü engelleyebilir. `ERROR` böyle durumlarda `NO_DATA`ya dönüştürülmez. Splunk hesabının hedef indexleri görebildiğini ayrıca doğrulayın. Gerçek Splunk ortamınızda uçtan uca sonucu kendi verinizle test edin.
+## Proje yapısı
 
-Yalnız `requests`, `python-dotenv` ve Python standart kütüphanesi kullanılır. `.gitignore`; `.env`, gerçek hedefler, `checks.json`, raporlar ve sertifikaları dışlar. Kod ve örnekler için:
+```text
+webapp.py                    Yerel web arayüzünü başlatır
+continuity/alerts.py         Alert SPL bağımlılıklarını çıkarır ve değerlendirir
+continuity/splunk.py         Splunk REST API ve arama işlerini yönetir
+continuity/web.py            Yerel HTTP API ve oturum yönetimi
+continuity/static/           HTML, CSS ve JavaScript arayüzü
+tests/test_alerts.py         Alert filtreleme ve sağlık analiz testleri
+tests/test_web.py            Web API ve arayüz akış testleri
+docs/ARAYUZ_KULLANIM.md      Ayrıntılı Türkçe kullanım rehberi
+```
+
+## Test
 
 ```bash
 python -m unittest discover -s tests -v
 ```
+
+Testler; kullanıcıya ait alert filtrelemesini, zamanlanmamış alertlerin
+elenmesini, Event ID ayrıştırmasını, `_indextime` sorgularını, durum
+değerlendirmesini, CSV güvenliğini ve web API akışını kapsar.
+
+Bu proje gerçek Splunk ortamınızda kendi alertleriniz ve rol yetkilerinizle
+doğrulanmalıdır. Depoda gerçek kimlik bilgisi veya gerçek hedef verisi bulunmaz.
