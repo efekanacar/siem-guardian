@@ -1,5 +1,0 @@
-name,index,host,sourcetype,max_delay_minutes
-Ornek uygulama,example_apps,app-01.example.invalid,example:app,10
-Ornek guvenlik duvari,example_network,fw-01.example.invalid,example:firewall,15
-Ornek dusuk hacimli kaynak,example_audit,audit-01.example.invalid,example:audit,30
-Ornek erisim hatasi,example_errors,error-01.example.invalid,example:error,20
