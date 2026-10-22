@@ -10,10 +10,6 @@ seçilen zaman aralığında doğrular.
 Örneğin bir PowerShell alerti Sysmon Event ID 1 veya PowerShell 4104 verisine
 bağlıysa ve bu veri artık gelmiyorsa araç ilgili alerti riskli gösterir.
 
-![SIEM Guardian arayüz görüntüsü](siem-guardian.png)
-
-> Görsel, aracın önceki arayüzünden bir lab görüntüsüdür. Güncel arayüz alertlerin ihtiyaç duyduğu logların sağlığına odaklanır.
-
 ## Ne yapar?
 
 1. Splunk Management API'ye salt okunur olarak bağlanır.
@@ -181,7 +177,6 @@ continuity/splunk.py         Splunk REST API ve arama işlerini yönetir
 continuity/web.py            Yerel HTTP API ve oturum yönetimi
 continuity/static/           HTML, CSS ve JavaScript arayüzü
 requirements.txt             Python bağımlılığı
-siem-guardian.png            Arayüz görüntüsü
 ```
 
 Bu proje gerçek Splunk ortamınızda kendi alertleriniz ve rol yetkilerinizle
