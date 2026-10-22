@@ -1,3 +1,0 @@
-name,kind,index,host,sourcetype,source,window_minutes,availability,event_id_field,event_id,min_events
-Linux auth.log varlığı,presence,example_linux,linux-01.example.invalid,linux_secure,/var/log/auth.log,1440,intermittent,,,1
-Windows Security 4688,event_id,example_windows,windows-01.example.invalid,XmlWinEventLog:Security,WinEventLog:Security,60,intermittent,auto,4688,1
