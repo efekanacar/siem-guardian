@@ -49,7 +49,7 @@ kapalı sistemler ve seçilen kontrol aralığı sonucu etkileyebilir.
 - Python 3.10 veya üzeri
 - Splunk Enterprise Management API erişimi
 - Alertleri ve ilgili indexleri okuyabilen bir Splunk hesabı veya token
-- `requests` ve `python-dotenv`
+- `requests`
 
 Splunk Web genellikle `8000`, Management API ise `8089` portunu kullanır. Bu
 araçta `https://SPLUNK_IP:8089` biçimindeki management adresi kullanılmalıdır.
@@ -67,12 +67,6 @@ cd siem-guardian
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-```
-
-Testleri çalıştırın:
-
-```bash
-python -m unittest discover -s tests -v
 ```
 
 Arayüzü başlatın:
@@ -186,20 +180,9 @@ continuity/alerts.py         Alert SPL bağımlılıklarını çıkarır ve değ
 continuity/splunk.py         Splunk REST API ve arama işlerini yönetir
 continuity/web.py            Yerel HTTP API ve oturum yönetimi
 continuity/static/           HTML, CSS ve JavaScript arayüzü
-tests/test_alerts.py         Alert filtreleme ve sağlık analiz testleri
-tests/test_web.py            Web API ve arayüz akış testleri
+requirements.txt             Python bağımlılığı
 siem-guardian.png            Arayüz görüntüsü
 ```
-
-## Test
-
-```bash
-python -m unittest discover -s tests -v
-```
-
-Testler; kullanıcıya ait alert filtrelemesini, zamanlanmamış alertlerin
-elenmesini, Event ID ayrıştırmasını, `_indextime` sorgularını, durum
-değerlendirmesini, CSV güvenliğini ve web API akışını kapsar.
 
 Bu proje gerçek Splunk ortamınızda kendi alertleriniz ve rol yetkilerinizle
 doğrulanmalıdır. Depoda gerçek kimlik bilgisi veya gerçek hedef verisi bulunmaz.
