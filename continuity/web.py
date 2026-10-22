@@ -360,9 +360,6 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/health-checks.json":
                 return self.send(200, {"checks": [rule_dict(rule) for rule in session.health_rules],
                                        "detections": [detection_dict(value) for value in session.detections]}, sid=sid, filename="checks.json")
-            if path == "/api/health-example.json":
-                example = Path(__file__).resolve().parent.parent / "checks.example.json"
-                return self.send(200, example.read_bytes(), "application/json; charset=utf-8", sid, "checks.example.json")
         self.send(404, {"error": "Sayfa bulunamadı."})
 
     def do_POST(self):
