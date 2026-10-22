@@ -10,6 +10,10 @@ seçilen zaman aralığında doğrular.
 Örneğin bir PowerShell alerti Sysmon Event ID 1 veya PowerShell 4104 verisine
 bağlıysa ve bu veri artık gelmiyorsa araç ilgili alerti riskli gösterir.
 
+![SIEM Guardian arayüz görüntüsü](siem-guardian.png)
+
+> Görsel, aracın önceki arayüzünden bir lab görüntüsüdür. Güncel arayüz alertlerin ihtiyaç duyduğu logların sağlığına odaklanır.
+
 ## Ne yapar?
 
 1. Splunk Management API'ye salt okunur olarak bağlanır.
@@ -111,9 +115,6 @@ Sistemler sürekli açık değilse daha uzun bir aralık kullanabilirsiniz:
 | 3 gün | `4320` |
 | 7 gün | `10080` |
 
-Ayrıntılı anlatım için [Türkçe arayüz rehberine](docs/ARAYUZ_KULLANIM.md)
-bakabilirsiniz.
-
 ## Araç alert bağımlılığını nasıl bulur?
 
 Örnek alert SPL'i:
@@ -187,7 +188,7 @@ continuity/web.py            Yerel HTTP API ve oturum yönetimi
 continuity/static/           HTML, CSS ve JavaScript arayüzü
 tests/test_alerts.py         Alert filtreleme ve sağlık analiz testleri
 tests/test_web.py            Web API ve arayüz akış testleri
-docs/ARAYUZ_KULLANIM.md      Ayrıntılı Türkçe kullanım rehberi
+siem-guardian.png            Arayüz görüntüsü
 ```
 
 ## Test
